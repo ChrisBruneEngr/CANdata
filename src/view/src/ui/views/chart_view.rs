@@ -103,7 +103,7 @@ fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl In
             div()
                 .text_xs()
                 .text_color(rgb(0x71717a))
-                .child("⌘/Ctrl + 滚轮 = 缩放 · 滚轮 = 滚动")
+                .child("⌘/Ctrl + wheel = zoom · wheel = scroll")
         )
         .child(
             div()
@@ -167,13 +167,13 @@ fn render_empty_state(app: &CanViewerApp) -> AnyElement {
             div()
                 .text_color(rgb(0x71717a))
                 .text_lg()
-                .child("尚未选择信号")
+                .child("No signals selected")
         )
         .child(
             div()
                 .text_color(rgb(0x52525b))
                 .text_sm()
-                .child("请在左侧信号选择(Signals)中勾选信号，然后点击「绘制 (Plot)」按钮")
+                .child("Check signals in the Signals panel on the left to plot them")
         )
         .child(
             div()
@@ -752,7 +752,7 @@ fn render_no_data_chart(signal_id: &str) -> AnyElement {
                     div()
                         .text_xs()
                         .text_color(rgb(0x52525b))
-                        .child("检查通道 ID 匹配 (DBC vs 日志) 或时间范围")
+                        .child("Check that channel IDs match (DBC vs log), or check the time range")
                 )
         )
         .into_any_element()

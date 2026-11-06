@@ -470,13 +470,13 @@ pub enum SetDropdownItem {
 /// Pure function: build the list of items shown in the signal-sets dropdown.
 pub fn build_set_dropdown_items(app: &CanViewerApp) -> Vec<SetDropdownItem> {
     let Some(lib_id) = &app.app_config.active_library_id else {
-        return vec![SetDropdownItem::Placeholder("先激活一个信号库".into())];
+        return vec![SetDropdownItem::Placeholder("Activate a signal library first".into())];
     };
     let Some(sets) = app.signal_set_store.sets_by_library.get(lib_id) else {
-        return vec![SetDropdownItem::Placeholder("当前库无信号集".into())];
+        return vec![SetDropdownItem::Placeholder("No signal sets in this library".into())];
     };
     if sets.is_empty() {
-        return vec![SetDropdownItem::Placeholder("当前库无信号集".into())];
+        return vec![SetDropdownItem::Placeholder("No signal sets in this library".into())];
     }
     let mut items: Vec<SetDropdownItem> = sets
         .iter()
@@ -531,7 +531,7 @@ pub fn render_signal_sidebar(
                                 .text_xs()
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(rgb(0xe4e4e7))
-                                .child("信号选择 (Signals)")
+                                .child("Signals")
                         )
                         .when_some(
                             app.active_signal_set.as_ref().and_then(|(lid, sname)| {
@@ -655,7 +655,7 @@ pub fn render_signal_sidebar(
                                     .text_xs()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(0xffffff))
-                                    .child(format!("清除全部 ({})", selected_count))
+                                    .child(format!("Clear all ({})", selected_count))
                             )
                     )
                     .child(
@@ -674,7 +674,7 @@ pub fn render_signal_sidebar(
                                 cx.notify();
                             }))
                             .child(
-                                div().text_xs().text_color(rgb(0xffffff)).child("保存为信号集…")
+                                div().text_xs().text_color(rgb(0xffffff)).child("Save as signal set…")
                             )
                     )
                     .into_any_element()
@@ -707,7 +707,7 @@ fn render_signal_set_dropdown_trigger(
                 None
             }
         })
-        .unwrap_or_else(|| "选择信号集…".to_string());
+        .unwrap_or_else(|| "Select signal set…".to_string());
 
     let is_disabled = matches!(items.first(), Some(SetDropdownItem::Placeholder(_)));
 
@@ -731,7 +731,7 @@ fn render_signal_set_dropdown_trigger(
                 .text_xs()
                 .text_color(rgb(0x71717a))
                 .w(px(56.0))
-                .child("信号集:")
+                .child("Set:")
         )
         .child(
             div()
@@ -842,7 +842,7 @@ fn render_signal_set_dropdown_popup(
                     }
                 })
                 .text_xs().text_color(rgb(0xef4444))
-                .child("✕ 清除当前选择")
+                .child("✕ Clear current selection")
                 .into_any_element(),
         };
         children.push(elem);
@@ -923,7 +923,7 @@ fn render_save_set_input_row(
                     .px_2()
                     .text_xs()
                     .text_color(rgb(0x52525b))
-                    .child("初始化输入…")
+                    .child("Initializing input…")
                     .into_any_element()
             }
         )
@@ -942,7 +942,7 @@ fn render_save_set_input_row(
                         cx.notify();
                     });
                 })
-                .child(div().text_xs().text_color(rgb(0xffffff)).child("取消"))
+                .child(div().text_xs().text_color(rgb(0xffffff)).child("Cancel"))
         )
         .into_any_element()
 }
@@ -991,7 +991,7 @@ mod tests {
         let items = build_set_dropdown_items(&app);
         assert_eq!(items.len(), 1);
         match &items[0] {
-            SetDropdownItem::Placeholder(msg) => assert_eq!(msg, "先激活一个信号库"),
+            SetDropdownItem::Placeholder(msg) => assert_eq!(msg, "Activate a signal library first"),
             other => panic!("expected Placeholder, got {:?}", other),
         }
     }
@@ -1002,7 +1002,7 @@ mod tests {
         let items = build_set_dropdown_items(&app);
         assert_eq!(items.len(), 1);
         match &items[0] {
-            SetDropdownItem::Placeholder(msg) => assert_eq!(msg, "当前库无信号集"),
+            SetDropdownItem::Placeholder(msg) => assert_eq!(msg, "No signal sets in this library"),
             other => panic!("expected Placeholder, got {:?}", other),
         }
     }

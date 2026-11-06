@@ -157,14 +157,14 @@ impl ProcessBlfResult {
             Ok(result) => {
                 if result.errors.len() > 0 {
                     let mut msg = format!(
-                        "⚠️  BLF 解析过程中发现 {} 个错误:\n",
+                        "⚠️  Found {} errors while parsing BLF:\n",
                         result.errors.len()
                     );
                     for (i, error) in result.errors.iter().enumerate() {
-                        msg.push_str(&format!("  错误 {}: {}\n", i + 1, error));
+                        msg.push_str(&format!("  Error {}: {}\n", i + 1, error));
                     }
                     msg.push_str(&format!(
-                        "  ✅ 但仍成功解析了 {} 个对象，这些对象将正常显示",
+                        "  ✅ Still parsed {} objects successfully; they will display normally",
                         result.objects.len()
                     ));
                     Some(msg)

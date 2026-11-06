@@ -1685,7 +1685,7 @@ impl Render for CanViewerApp {
         // Initialize signal search input if needed
         if self.signal_search_input.is_none() {
             let input = cx
-                .new(|cx| InputState::new(window, cx).placeholder("查询信号/消息/ID (Search...)"));
+                .new(|cx| InputState::new(window, cx).placeholder("Search signals / messages / IDs..."));
 
             // 使用 observe 来监听输入状态的任何变化，而不仅仅是 Change 事件
             // CRITICAL: Prevent infinite rendering loop by using String comparison
@@ -1708,7 +1708,7 @@ impl Render for CanViewerApp {
 
         // Initialize signal set name input (lazily, on first render)
         if self.signal_set_name_input.is_none() {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("输入集名并按回车保存…"));
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Enter a set name and press Enter to save…"));
             cx.subscribe(&input, |this, input, event, cx| {
                 if let gpui_component::input::InputEvent::PressEnter { .. } = event {
                     let name = input.read(cx).value().to_string();

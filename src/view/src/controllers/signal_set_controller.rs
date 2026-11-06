@@ -15,7 +15,7 @@ pub fn save_current_selection_as_signal_set(
 ) {
     let name = name.trim().to_string();
     if name.is_empty() {
-        app.status_msg = "集名不能为空".into();
+        app.status_msg = "Set name cannot be empty".into();
         cx.notify();
         return;
     }
@@ -23,7 +23,7 @@ pub fn save_current_selection_as_signal_set(
     let library_id = match &app.app_config.active_library_id {
         Some(id) => id.clone(),
         None => {
-            app.status_msg = "先激活一个信号库".into();
+            app.status_msg = "Activate a signal library first".into();
             cx.notify();
             return;
         }
@@ -38,7 +38,7 @@ pub fn save_current_selection_as_signal_set(
         }
     }
     if entries.is_empty() {
-        app.status_msg = "没有可保存的有效信号".into();
+        app.status_msg = "No valid signals to save".into();
         cx.notify();
         return;
     }
@@ -50,7 +50,7 @@ pub fn save_current_selection_as_signal_set(
         .entry(library_id.clone())
         .or_default();
     if sets.iter().any(|s| s.name == name) {
-        app.status_msg = format!("集 '{}' 已存在", name).into();
+        app.status_msg = format!("Set '{}' already exists", name).into();
         cx.notify();
         return;
     }
@@ -62,9 +62,9 @@ pub fn save_current_selection_as_signal_set(
     });
     if let Err(e) = save_signal_set_store(&app.signal_set_store, app.config_file_path.as_deref()) {
         eprintln!("❌ Failed to save signal sets: {}", e);
-        app.status_msg = format!("警告：无法保存信号集到磁盘 ({})", e).into();
+        app.status_msg = format!("Warning: could not save signal set to disk ({})", e).into();
     } else {
-        app.status_msg = format!("已保存集 '{}'（{} 个信号）", name, count).into();
+        app.status_msg = format!("Saved set '{}' ({} signals)", name, count).into();
     }
     app.show_save_set_input = false;
     app.pending_signal_set_name = None;
@@ -81,7 +81,7 @@ pub fn apply_signal_set(
     let library = match app.library_manager.find_library(library_id) {
         Some(lib) => lib.clone(),
         None => {
-            app.status_msg = "库未找到".into();
+            app.status_msg = "Library not found".into();
             cx.notify();
             return;
         }
@@ -94,7 +94,7 @@ pub fn apply_signal_set(
     {
         Some(s) => s.clone(),
         None => {
-            app.status_msg = "集未找到".into();
+            app.status_msg = "Set not found".into();
             cx.notify();
             return;
         }
@@ -108,7 +108,7 @@ pub fn apply_signal_set(
     // Trigger plot refresh
     crate::ui::views::chart_view::extract_and_update_series_data(app);
 
-    app.status_msg = format!("已加载集 '{}'（{} 个信号）", set_name, set.entries.len()).into();
+    app.status_msg = format!("Loaded set '{}' ({} signals)", set_name, set.entries.len()).into();
     cx.notify();
 }
 
@@ -118,7 +118,7 @@ pub fn clear_active_signal_set(app: &mut CanViewerApp, cx: &mut Context<CanViewe
     app.active_signal_set = None;
     app.selected_signals.clear();
     crate::ui::views::chart_view::extract_and_update_series_data(app);
-    app.status_msg = "已清除集选择".into();
+    app.status_msg = "Set selection cleared".into();
     cx.notify();
 }
 
@@ -138,7 +138,7 @@ pub fn delete_signal_set(
     }
 
     if !removed {
-        app.status_msg = "集未找到".into();
+        app.status_msg = "Set not found".into();
         cx.notify();
         return;
     }
@@ -150,6 +150,6 @@ pub fn delete_signal_set(
             app.active_signal_set = None;
         }
     }
-    app.status_msg = format!("已删除集 '{}'", set_name).into();
+    app.status_msg = format!("Deleted set '{}'", set_name).into();
     cx.notify();
 }
