@@ -1765,6 +1765,10 @@ impl CanViewerApp {
     /// Hide channel input and clear values
     pub fn hide_add_channel_input(&mut self, cx: &mut Context<Self>) {
         self.show_add_channel_input = false;
+        // Editing loads the channel's type into the form; don't leak it into the next add.
+        if self.editing_channel_index.take().is_some() {
+            self.new_channel_type = crate::models::ChannelType::CAN;
+        }
         self.new_channel_id.clear();
         self.new_channel_name.clear();
         self.new_channel_db_path.clear();
@@ -1964,7 +1968,12 @@ impl CanViewerApp {
                 }
             };
 
-            let version = match library.latest_version() {
+            // Save into the version on screen; fall back to the latest if none is selected.
+            let selected = self
+                .selected_version_id
+                .as_deref()
+                .and_then(|name| library.get_version(name));
+            let version = match selected.or_else(|| library.latest_version()) {
                 Some(v) => v,
                 None => {
                     self.status_msg = "No version found. Please add a version first.".into();
@@ -1979,6 +1988,38 @@ impl CanViewerApp {
         // Set selected_version_id if not already set
         if self.selected_version_id.is_none() {
             self.selected_version_id = Some(version_name.clone());
+        }
+
+        // When editing, find the channel being replaced. Check for a clashing ID
+        // now, before any files are touched.
+        let editing = self.editing_channel_index;
+        let version_channels = self
+            .library_manager
+            .find_library(&library_id)
+            .and_then(|lib| lib.get_version(&version_name))
+            .map(|v| v.channel_databases.clone())
+            .unwrap_or_default();
+        let original = match editing {
+            Some(index) => match version_channels.get(index) {
+                Some(channel) => Some(channel.clone()),
+                None => {
+                    self.status_msg = "The channel being edited no longer exists".into();
+                    self.hide_add_channel_input(cx);
+                    return;
+                }
+            },
+            None => None,
+        };
+        let id_in_use = version_channels
+            .iter()
+            .enumerate()
+            .any(|(i, db)| Some(i) != editing && db.channel_id == channel_id);
+        if id_in_use {
+            let message = format!("Channel ID {} is already used in this version", channel_id);
+            self.status_msg = message.clone().into();
+            Self::show_channel_config_warning(message, cx);
+            cx.notify();
+            return;
         }
 
         // Create channel database config
@@ -2003,6 +2044,20 @@ impl CanViewerApp {
         };
 
         let source_path = std::path::Path::new(&self.new_channel_db_path);
+        if !source_path.is_file() {
+            self.status_msg = "The channel's database file could not be found".into();
+            Self::show_channel_config_warning(
+                format!(
+                    "The database file for this channel could not be found:\n\n{}\n\n\
+                     Click Select File... and choose the file again.",
+                    self.new_channel_db_path
+                ),
+                cx,
+            );
+            cx.notify();
+            return;
+        }
+
         let libraries_dir = crate::library::libraries_base_path(self.config_file_path.as_deref());
         match crate::library::copy_database_to_libraries(
             &libraries_dir,
@@ -2016,7 +2071,9 @@ impl CanViewerApp {
                 eprintln!("✅ Database file copied to local storage: {:?}", local_path);
             }
             Err(e) => {
-                self.status_msg = format!("Failed to copy database file: {}", e).into();
+                let message = format!("Failed to copy database file: {}", e);
+                self.status_msg = message.clone().into();
+                Self::show_channel_config_warning(message, cx);
                 cx.notify();
                 return;
             }
@@ -2041,9 +2098,30 @@ impl CanViewerApp {
             }
         };
         if let Some(version) = library.versions.iter_mut().find(|v| v.name == version_name) {
-            match version.add_channel_database(channel_db) {
+            let result = match editing {
+                Some(index) if index < version.channel_databases.len() => {
+                    channel_db.validate().map(|_| {
+                        version.channel_databases[index] = channel_db;
+                        version.path = version
+                            .channel_databases
+                            .first()
+                            .map(|db| db.database_path.clone())
+                            .unwrap_or_default();
+                    })
+                }
+                _ => version.add_channel_database(channel_db),
+            };
+            match result {
                 Ok(_) => {
-                    self.status_msg = format!("Channel {} added successfully", channel_id).into();
+                    self.status_msg = if editing.is_some() {
+                        format!("Channel {} updated", channel_id).into()
+                    } else {
+                        format!("Channel {} added successfully", channel_id).into()
+                    };
+
+                    if let Some(original) = &original {
+                        self.finish_channel_edit(original, channel_id, &library_id, &version_name);
+                    }
 
                     // Close input form cleanly — prevents inconsistent state
                     // where show_add_channel_input=true but all input entities are None.
@@ -2073,15 +2151,85 @@ impl CanViewerApp {
                     cx.notify();
                 }
                 Err(e) => {
-                    self.status_msg = format!("Error adding channel: {}", e).into();
+                    self.status_msg = format!("Error saving channel: {}", e).into();
                     cx.notify();
                 }
             }
         }
     }
 
+    /// Tidy up after an edit: drop a stored file nothing uses any more, carry the
+    /// channel's mapping over to a new ID, and clear stale runtime databases.
+    fn finish_channel_edit(
+        &mut self,
+        original: &crate::models::library::ChannelDatabase,
+        new_channel_id: u16,
+        library_id: &str,
+        version_name: &str,
+    ) {
+        let canonical = |path: &str| std::fs::canonicalize(path).ok();
+
+        // Only ever delete inside our own libraries folder, and only if no
+        // channel in this version still points at the file.
+        let libraries_dir = crate::library::libraries_base_path(self.config_file_path.as_deref());
+        let libraries_root = std::fs::canonicalize(&libraries_dir).ok();
+        let old_file = canonical(&original.database_path);
+        let still_used = self
+            .library_manager
+            .find_library(library_id)
+            .and_then(|lib| lib.get_version(version_name))
+            .is_some_and(|v| {
+                v.channel_databases
+                    .iter()
+                    .any(|db| canonical(&db.database_path) == old_file)
+            });
+        if let (Some(old_file), Some(root)) = (&old_file, &libraries_root) {
+            if !still_used && old_file.starts_with(root) {
+                if let Err(e) = std::fs::remove_file(old_file) {
+                    eprintln!("Could not remove replaced database file: {}", e);
+                } else if let Some(folder) = old_file.parent() {
+                    // Fails harmlessly if the folder still holds other files.
+                    let _ = std::fs::remove_dir(folder);
+                }
+            }
+        }
+
+        if original.channel_id != new_channel_id {
+            let new_id_mapped = self
+                .app_config
+                .mappings
+                .iter()
+                .any(|m| m.channel_id == new_channel_id);
+            for mapping in self.app_config.mappings.iter_mut() {
+                if mapping.channel_id == original.channel_id
+                    && mapping.library_id.as_deref() == Some(library_id)
+                    && mapping.version_name.as_deref() == Some(version_name)
+                {
+                    if new_id_mapped {
+                        mapping.library_id = None;
+                        mapping.version_name = None;
+                    } else {
+                        mapping.channel_id = new_channel_id;
+                    }
+                }
+            }
+        }
+
+        let is_active_version = self.active_library_id.as_deref() == Some(library_id)
+            && self.active_version_name.as_deref() == Some(version_name);
+        if is_active_version {
+            self.dbc_channels.remove(&original.channel_id);
+            self.ldf_channels.remove(&original.channel_id);
+        }
+    }
+
     /// Delete channel from version
     pub fn delete_channel(&mut self, channel_id: u16, cx: &mut Context<Self>) {
+        // Deleting shifts row positions, so abandon any edit in progress.
+        if self.editing_channel_index.is_some() {
+            self.hide_add_channel_input(cx);
+        }
+
         let library_id = match &self.selected_library_id {
             Some(id) => id.clone(),
             None => return,
@@ -2115,6 +2263,20 @@ impl CanViewerApp {
                 .map(|db| db.database_path.clone())
                 .unwrap_or_default();
 
+            // Channels with the same name share a storage folder, so keep the
+            // folder if another channel in this version still uses it.
+            let storage_folder = |name: &str| {
+                crate::library::build_library_file_subdir(&library_name, &version_name, name)
+                    .to_string_lossy()
+                    .to_lowercase()
+            };
+            let folder_still_used = channel_name.as_deref().is_some_and(|name| {
+                version
+                    .channel_databases
+                    .iter()
+                    .any(|db| storage_folder(&db.channel_name) == storage_folder(name))
+            });
+
             // Remove from runtime cache
             self.dbc_channels.remove(&channel_id);
             self.ldf_channels.remove(&channel_id);
@@ -2139,7 +2301,9 @@ impl CanViewerApp {
             // Save to disk
             self.save_config(cx);
 
-            let cleanup_result = if let Some(channel_name) = channel_name {
+            let cleanup_result = if let Some(channel_name) =
+                channel_name.filter(|_| !folder_still_used)
+            {
                 let libraries_dir =
                     crate::library::libraries_base_path(self.config_file_path.as_deref());
                 crate::library::delete_channel_from_libraries(

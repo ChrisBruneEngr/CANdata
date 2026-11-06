@@ -53,6 +53,15 @@ pub fn copy_database_to_libraries(
         .unwrap_or_else(|| format!("database.{}", extension));
 
     let dest_path = target_dir.join(file_name);
+
+    // Saving an edited channel can point at the file already in storage.
+    // Copying a file over itself could destroy it, so leave it alone.
+    if let (Ok(source), Ok(dest)) = (fs::canonicalize(source_path), fs::canonicalize(&dest_path)) {
+        if source == dest {
+            return Ok(dest_path);
+        }
+    }
+
     fs::copy(source_path, &dest_path).context(format!(
         "Failed to copy database from {:?} to {:?}",
         source_path, dest_path

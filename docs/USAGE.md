@@ -205,6 +205,7 @@ Click ▶ to deactivate. The library picker overlay reappears in Plot view when 
 
 - **✎** — rename a library or version. Inline input with ✓ / ✕ confirmation.
 - **🗑** — delete a library, version, or channel. No undo.
+- **✎ on a channel** — edit its type, ID, name, or database file in place. Click ✓ to save or ✕ to cancel. Choosing a new file replaces the stored copy.
 
 ### Apply to Plot
 

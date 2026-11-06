@@ -178,6 +178,7 @@ impl CanViewerApp {
                 self.channel_db_path_input.as_ref(),
                 &self.new_channel_db_path, // Add this parameter
                 self.new_channel_type,     // Add channel type parameter
+                self.editing_channel_index,
                 self.server_handle.is_some(), // is_sharing
                 self.copied_channel_id,       // copied_channel_id
                 self.active_library_id.as_deref(),

@@ -36,6 +36,7 @@ pub fn render_library_management_view(
     channel_db_path_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
     new_channel_db_path: &str, // Add this parameter to avoid reading entity in render
     new_channel_type: crate::models::ChannelType, // Add channel type parameter
+    editing_channel_index: Option<usize>, // Row being edited, if any
     is_sharing: bool, // Whether the share server is currently running
     copied_channel_id: Option<u16>,
     active_library_id: Option<&str>,
@@ -114,6 +115,7 @@ pub fn render_library_management_view(
             channel_db_path_input,
             new_channel_db_path,
             new_channel_type,
+            editing_channel_index,
             is_sharing,
             copied_channel_id,
             cx,
@@ -937,6 +939,7 @@ fn render_right_column(
     channel_db_path_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
     new_channel_db_path: &str, // Add this parameter to avoid reading entity in render
     new_channel_type: crate::models::ChannelType, // Use the new channel type being added
+    editing_channel_index: Option<usize>, // Row being edited, if any
     is_sharing: bool,
     copied_channel_id: Option<u16>,
     cx: &mut Context<crate::CanViewerApp>,
@@ -1105,13 +1108,16 @@ fn render_right_column(
                                         .child("Database Path"),
                                 ),
                             )
-                            .child(div().w(px(16.)).flex_shrink_0()),
+                            // Spacer for the edit + delete buttons (16 + 12 gap + 16)
+                            .child(div().w(px(44.)).flex_shrink_0()),
                     )
                 })
                 .child(
                     div()
+                        .id("channel-list")
                         .flex_1()
-                        .overflow_hidden()
+                        .min_h_0()
+                        .overflow_y_scroll()
                         .px_2()
                         .py_2()
                         .when(selected_version.is_none(), |this| {
@@ -1129,11 +1135,25 @@ fn render_right_column(
                         .when_some(selected_version, |this, version| {
                             let mut list = this;
                             // 显示现有通道列表
-                            for channel_db in &version.channel_databases {
-                                list = list.child(render_channel_item(channel_db, is_sharing, copied_channel_id, cx));
+                            for (index, channel_db) in version.channel_databases.iter().enumerate() {
+                                if show_add_channel_input && editing_channel_index == Some(index) {
+                                    // Edit in place, using the same form as Add Channel
+                                    list = list.child(render_add_channel_input_row_with_path(
+                                        channel_id_input,
+                                        channel_name_input,
+                                        channel_db_path_input,
+                                        channel_type,
+                                        path_text.clone(),
+                                        path_is_empty,
+                                        entity_clone.clone(),
+                                        cx,
+                                    ));
+                                } else {
+                                    list = list.child(render_channel_item(index, channel_db, is_sharing, copied_channel_id, cx));
+                                }
                             }
                             // 显示输入框（如果show_add_channel_input为true）
-                            if show_add_channel_input {
+                            if show_add_channel_input && editing_channel_index.is_none() {
                                 list = list.child(render_add_channel_input_row_with_path(
                                     channel_id_input,
                                     channel_name_input,
@@ -1154,6 +1174,7 @@ fn render_right_column(
 
 /// 渲染单个通道项 - 完整的单行列表显示
 fn render_channel_item(
+    index: usize,
     channel_db: &ChannelDatabase,
     is_sharing: bool,
     copied_channel_id: Option<u16>,
@@ -1162,6 +1183,8 @@ fn render_channel_item(
     let path = channel_db.database_path.clone();
     let channel_name = channel_db.channel_name.clone();
     let channel_type = channel_db.channel_type;
+    let edit_name = channel_name.clone();
+    let edit_path = path.clone();
 
     // Copy channel_id to avoid borrow issues in closure
     let channel_id = channel_db.channel_id;
@@ -1174,7 +1197,7 @@ fn render_channel_item(
         .px_3()
         .py_1()
         .mb_1()
-        .h(px(32.))
+        .min_h(px(32.)) // Grows so long channel names wrap inside the row
         .bg(rgb(0x0c0c0e)) // Zed panel bg
         .border_1()
         .border_color(rgb(0x1a1a1a))
@@ -1274,6 +1297,33 @@ fn render_channel_item(
             )
         })
         .child(
+            // Edit button
+            div()
+                .id(format!("ch-edit-{}", channel_id))
+                .w(px(16.))
+                .h(px(16.))
+                .cursor_pointer()
+                .hover(|style| style.bg(rgb(0x313244)).text_color(rgb(0xcdd6f4)))
+                .rounded(px(2.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .flex_shrink_0()
+                .text_color(rgb(0x646473)) // Zed muted
+                .child("✎")
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(move |this, _event, window, cx| {
+                        this.editing_channel_index = Some(index);
+                        this.new_channel_type = channel_type;
+                        this.new_channel_db_path = edit_path.clone();
+                        this.new_channel_id = channel_id.to_string();
+                        this.new_channel_name = edit_name.clone();
+                        open_channel_form(this, &channel_id.to_string(), &edit_name, window, cx);
+                    }),
+                ),
+        )
+        .child(
             // 删除按钮
             div()
                 .id(format!("ch-del-{}", channel_id))
@@ -1322,47 +1372,8 @@ fn render_add_channel_button(cx: &mut Context<crate::CanViewerApp>) -> impl Into
                 this.new_channel_id.clear();
                 this.new_channel_name.clear();
 
-                // Create fresh InputState entities in the event handler (not in render)
-                let id_input = cx.new(|cx| InputState::new(window, cx).placeholder("Channel ID"));
-                cx.subscribe(&id_input, |this, input, event, cx| {
-                    match event {
-                        gpui_component::input::InputEvent::Change => {
-                            this.new_channel_id = input.read(cx).text().to_string();
-                        }
-                        gpui_component::input::InputEvent::PressEnter { .. } => {
-                            // Defer focus to next render where window is available
-                            this.pending_add_channel_focus =
-                                Some(crate::app::PendingAddChannelFocus::ChannelName);
-                            cx.notify();
-                        }
-                        _ => {}
-                    }
-                })
-                .detach();
-                this.channel_id_input = Some(id_input);
-
-                let name_input =
-                    cx.new(|cx| InputState::new(window, cx).placeholder("Channel name"));
-                cx.subscribe(&name_input, |this, input, event, cx| {
-                    match event {
-                        gpui_component::input::InputEvent::Change => {
-                            this.new_channel_name = input.read(cx).text().to_string();
-                        }
-                        gpui_component::input::InputEvent::PressEnter { .. } => {
-                            // 让 render 在下次帧调 window.blur()，name 输入框光标自然消失
-                            this.pending_add_channel_focus =
-                                Some(crate::app::PendingAddChannelFocus::ChannelBlur);
-                            cx.notify();
-                        }
-                        _ => {}
-                    }
-                })
-                .detach();
-                this.channel_name_input = Some(name_input);
-
-                this.show_add_channel_input = true;
-                cx.notify();
-                eprintln!("✅ show_add_channel_input = true");
+                this.editing_channel_index = None;
+                open_channel_form(this, "", "", window, cx);
             }),
         )
         .child(
@@ -1374,6 +1385,65 @@ fn render_add_channel_button(cx: &mut Context<crate::CanViewerApp>) -> impl Into
                     .child("+ Add Channel"),
             ),
         )
+}
+
+/// Create the channel form's inputs and show it. Add Channel passes empty values;
+/// Edit passes the channel's current values.
+fn open_channel_form(
+    this: &mut crate::CanViewerApp,
+    id: &str,
+    name: &str,
+    window: &mut Window,
+    cx: &mut Context<crate::CanViewerApp>,
+) {
+    // Create fresh InputState entities in the event handler (not in render)
+    let id_input = cx.new(|cx| {
+        InputState::new(window, cx)
+            .placeholder("Channel ID")
+            .default_value(id.to_string())
+    });
+    cx.subscribe(&id_input, |this, input, event, cx| {
+        match event {
+            gpui_component::input::InputEvent::Change => {
+                this.new_channel_id = input.read(cx).text().to_string();
+            }
+            gpui_component::input::InputEvent::PressEnter { .. } => {
+                // Defer focus to next render where window is available
+                this.pending_add_channel_focus =
+                    Some(crate::app::PendingAddChannelFocus::ChannelName);
+                cx.notify();
+            }
+            _ => {}
+        }
+    })
+    .detach();
+    this.channel_id_input = Some(id_input);
+
+    let name_input =
+        cx.new(|cx| {
+        InputState::new(window, cx)
+            .placeholder("Channel name")
+            .default_value(name.to_string())
+    });
+    cx.subscribe(&name_input, |this, input, event, cx| {
+        match event {
+            gpui_component::input::InputEvent::Change => {
+                this.new_channel_name = input.read(cx).text().to_string();
+            }
+            gpui_component::input::InputEvent::PressEnter { .. } => {
+                // 让 render 在下次帧调 window.blur()，name 输入框光标自然消失
+                this.pending_add_channel_focus =
+                    Some(crate::app::PendingAddChannelFocus::ChannelBlur);
+                cx.notify();
+            }
+            _ => {}
+        }
+    })
+    .detach();
+    this.channel_name_input = Some(name_input);
+
+    this.show_add_channel_input = true;
+    cx.notify();
 }
 
 /// 渲染内联添加通道输入行 - 带预读取的路径和entity（避免在渲染时读取entity）
@@ -1390,6 +1460,7 @@ fn render_add_channel_input_row_with_path(
     div()
         .px_3()
         .py_1()
+        .mb_1()
         .h(px(32.))
         .border_1()
         .border_color(rgb(0x252525))
@@ -1399,12 +1470,7 @@ fn render_add_channel_input_row_with_path(
         .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
             if event.keystroke.key == "escape" {
                 // Close the input without saving
-                this.show_add_channel_input = false;
-                this.channel_id_input = None;
-                this.channel_name_input = None;
-                this.channel_db_path_input = None;
-                this.new_channel_db_path.clear(); // Clear selected path
-                cx.notify();
+                this.hide_add_channel_input(cx);
             }
             // Enter key handling moved to per-input PressEnter subscriptions
             // (see render_add_channel_button) and the ✓ Confirm button.
