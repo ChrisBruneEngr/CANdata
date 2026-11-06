@@ -1819,6 +1819,29 @@ impl CanViewerApp {
     }
 
     /// Save channel configuration
+    /// Show a native warning pop-up for a channel configuration problem.
+    /// Repeat clicks while one is open are ignored so pop-ups don't stack up.
+    fn show_channel_config_warning(message: String, cx: &mut Context<Self>) {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static WARNING_OPEN: AtomicBool = AtomicBool::new(false);
+
+        if WARNING_OPEN.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        cx.spawn(async move |_this, _cx| {
+            let _ = rfd::AsyncMessageDialog::new()
+                .set_level(rfd::MessageLevel::Warning)
+                .set_title("Channel Configuration")
+                .set_description(&message)
+                .set_buttons(rfd::MessageButtons::Ok)
+                .show()
+                .await;
+            WARNING_OPEN.store(false, Ordering::SeqCst);
+        })
+        .detach();
+    }
+
     pub fn save_channel_config(&mut self, cx: &mut Context<Self>) {
         // Debug: print current state
         eprintln!("DEBUG: Saving channel config");
@@ -1854,23 +1877,32 @@ impl CanViewerApp {
 
         if let Some(name_input) = &self.channel_name_input {
             let name_text = name_input.read(cx).text().to_string();
-            self.new_channel_name = name_text;
+            // An empty box must not erase a name auto-filled from the selected file.
+            if !name_text.is_empty() {
+                self.new_channel_name = name_text;
+            }
         }
 
-        if self.new_channel_id.is_empty() {
-            self.status_msg = "Please enter channel ID".into();
-            cx.notify();
-            return;
+        // Report every missing field at once, in a pop-up and in the status bar.
+        let mut missing = Vec::new();
+        if self.new_channel_id.trim().is_empty() {
+            missing.push("Channel ID");
         }
-
-        if self.new_channel_name.is_empty() {
-            self.status_msg = "Please enter channel name".into();
-            cx.notify();
-            return;
+        if self.new_channel_name.trim().is_empty() {
+            missing.push("Channel name");
         }
-
-        if self.new_channel_db_path.is_empty() {
-            self.status_msg = "Please select a database file".into();
+        if self.new_channel_db_path.trim().is_empty() {
+            missing.push("Database file");
+        }
+        if !missing.is_empty() {
+            self.status_msg = format!("Missing: {}", missing.join(", ")).into();
+            Self::show_channel_config_warning(
+                format!(
+                    "Please provide the following before saving this channel:\n\n- {}",
+                    missing.join("\n- ")
+                ),
+                cx,
+            );
             cx.notify();
             return;
         }
@@ -1891,7 +1923,9 @@ impl CanViewerApp {
         let channel_id: u16 = match self.new_channel_id.trim().parse() {
             Ok(id) if id > 0 && id <= 255 => id,
             _ => {
-                self.status_msg = "Invalid channel ID. Must be between 1 and 255".into();
+                let message = "Invalid channel ID. Must be between 1 and 255";
+                self.status_msg = message.into();
+                Self::show_channel_config_warning(message.to_string(), cx);
                 cx.notify();
                 return;
             }
