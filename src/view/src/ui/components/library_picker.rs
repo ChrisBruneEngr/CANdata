@@ -149,24 +149,31 @@ fn render_library_list(
     }
 
     // Each library row is 40px tall. uniform_list provides native scrolling.
+    // It does not size itself to its rows, so the wrapper needs an explicit
+    // height: fit the rows, capped so the card stays within its 400px max_h.
     let row_count = libraries.len();
+    let list_height = (row_count as f32 * 40.0).min(240.0);
     let libs: Vec<crate::models::SignalLibrary> = libraries.to_vec();
     let view_for_rows = view.clone();
 
     div()
-        .flex_1()
-        .h(px(280.))
-        .child(gpui::uniform_list(
-            "library-picker-list",
-            row_count,
-            move |range, _window, _cx| {
-                let view = view_for_rows.clone();
-                range
-                    .filter_map(|i| libs.get(i).map(|lib| (i, lib, view.clone())))
-                    .map(|(_, lib, v)| render_library_row(lib, v).into_any_element())
-                    .collect::<Vec<_>>()
-            },
-        ))
+        .flex_none()
+        .w_full()
+        .h(px(list_height))
+        .child(
+            gpui::uniform_list(
+                "library-picker-list",
+                row_count,
+                move |range, _window, _cx| {
+                    let view = view_for_rows.clone();
+                    range
+                        .filter_map(|i| libs.get(i).map(|lib| (i, lib, view.clone())))
+                        .map(|(_, lib, v)| render_library_row(lib, v).into_any_element())
+                        .collect::<Vec<_>>()
+                },
+            )
+            .size_full(),
+        )
         .into_any_element()
 }
 
@@ -189,6 +196,7 @@ fn render_library_row(
     let lib_id_for_activate = lib_id.clone();
 
     div()
+        .w_full()
         .flex()
         .items_center()
         .justify_between()
