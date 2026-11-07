@@ -5,11 +5,23 @@
 //! `rustc --edition 2021 --test src/view/src/plot_lanes.rs -o <output>`
 
 /// One horizontal plot area. A signal may appear in more than one lane.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlotLane {
     pub signals: Vec<String>,
     /// User-defined (min, max) Y limits. `None` means the range is automatic.
     pub y_range: Option<(f64, f64)>,
+    /// Draw a dot at each sample as well as the line.
+    pub show_points: bool,
+}
+
+impl Default for PlotLane {
+    fn default() -> Self {
+        Self {
+            signals: Vec::new(),
+            y_range: None,
+            show_points: true,
+        }
+    }
 }
 
 /// The ordered lanes. There is always at least one, and `selected` is always valid.
@@ -263,6 +275,13 @@ mod tests {
     }
 
     #[test]
+    fn new_lanes_show_points() {
+        let mut l = LaneLayout::default();
+        l.add_lane();
+        assert!(l.lanes.iter().all(|lane| lane.show_points));
+    }
+
+    #[test]
     fn add_lane_goes_to_the_bottom_and_is_selected() {
         let mut l = layout(&[&["a"]], 0);
         l.add_lane();
@@ -451,12 +470,15 @@ mod tests {
     }
 
     #[test]
-    fn moving_a_lane_keeps_its_y_range() {
+    fn moving_a_lane_keeps_its_settings() {
         let mut l = layout(&[&["a"], &["b"]], 1);
         l.lanes[1].y_range = Some((0.0, 10.0));
+        l.lanes[1].show_points = false;
         l.move_selected_up();
         assert_eq!(l.lanes[0].y_range, Some((0.0, 10.0)));
+        assert!(!l.lanes[0].show_points);
         assert_eq!(l.lanes[1].y_range, None);
+        assert!(l.lanes[1].show_points);
     }
 
     #[test]

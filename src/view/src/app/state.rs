@@ -33,7 +33,6 @@ pub struct RuntimeState {
     pub plot_zoom_end: Option<f64>,
     pub plot_full_time_min: Option<f64>,
     pub plot_full_time_max: Option<f64>,
-    pub show_plot_points: bool,
     pub selected_signals: Vec<String>,
     pub plot_lanes: crate::plot_lanes::LaneLayout,
     pub dbc_channels: HashMap<u16, DbcDatabase>,
@@ -236,7 +235,6 @@ pub struct CanViewerApp {
     pub zoom_drag_current_x: Option<Pixels>,
 
     // Plot display settings
-    pub show_plot_points: bool,
 
     // Plot interaction state
     pub hover_point: Option<HoverPoint>,
@@ -439,7 +437,6 @@ impl CanViewerApp {
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
             // Plot display settings
-            show_plot_points: true,
             hover_point: None,
             plot_cursor_time: None,
             plot_cursor_values: std::collections::HashMap::new(),
@@ -496,7 +493,6 @@ impl CanViewerApp {
             plot_zoom_end: self.plot_zoom_end,
             plot_full_time_min: self.plot_full_time_min,
             plot_full_time_max: self.plot_full_time_max,
-            show_plot_points: self.show_plot_points,
             selected_signals: self.selected_signals.clone(),
             plot_lanes: self.plot_lanes.clone(),
             dbc_channels: self.dbc_channels.clone(),
@@ -533,7 +529,6 @@ impl CanViewerApp {
         self.plot_zoom_end = state.plot_zoom_end;
         self.plot_full_time_min = state.plot_full_time_min;
         self.plot_full_time_max = state.plot_full_time_max;
-        self.show_plot_points = state.show_plot_points;
         self.selected_signals = state.selected_signals;
         self.plot_lanes = state.plot_lanes;
         self.dbc_channels = state.dbc_channels;

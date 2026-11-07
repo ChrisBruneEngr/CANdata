@@ -125,25 +125,6 @@ fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl In
                             .child(div().text_xs().text_color(rgb(0xffffff)).child("Reset Zoom"))
                     )
                 })
-                .child(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .bg(if app.show_plot_points { rgb(0x10b981) } else { rgb(0x6b7280) })
-                        .rounded(px(4.0))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(if app.show_plot_points { rgb(0x059669) } else { rgb(0x4b5563) }))
-                        .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this: &mut CanViewerApp, _, _, cx| {
-                            this.show_plot_points = !this.show_plot_points;
-                            cx.notify();
-                        }))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0xffffff))
-                                .child(if app.show_plot_points { "Points: ON" } else { "Points: OFF" })
-                        )
-                )
         )
 }
 
@@ -177,7 +158,14 @@ fn render_lane_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> im
             |app| app.plot_lanes.move_selected_down(),
             cx,
         ))
-        .child(div().w(px(1.0)).h(px(16.0)).mx_1().bg(rgb(0x3f3f46)))
+        .child(render_toolbar_separator())
+        .child(render_lane_checkbox(
+            "Points",
+            lanes.lanes[lanes.selected].show_points,
+            toggle_lane_points,
+            cx,
+        ))
+        .child(render_toolbar_separator())
         .child(render_y_range_controls(app, cx))
         .when(over_limit, |this| {
             this.child(
@@ -212,35 +200,7 @@ fn render_y_range_controls(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -
         .items_center()
         .gap_2()
         .child(div().text_xs().text_color(rgb(0xa1a1aa)).child("Y:"))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .cursor_pointer()
-                .on_mouse_down(
-                    gpui::MouseButton::Left,
-                    cx.listener(|this: &mut CanViewerApp, _, _, cx| {
-                        toggle_lane_auto_range(this);
-                        cx.notify();
-                    }),
-                )
-                .child(
-                    div()
-                        .size(px(12.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(2.0))
-                        .border_1()
-                        .border_color(if is_auto { rgb(0x3b82f6) } else { rgb(0x52525b) })
-                        .when(is_auto, |this| this.bg(rgb(0x3b82f6)))
-                        .text_size(px(9.0))
-                        .text_color(rgb(0xffffff))
-                        .child(if is_auto { "✓" } else { "" }),
-                )
-                .child(div().text_xs().text_color(rgb(0xe4e4e7)).child("Auto")),
-        )
+        .child(render_lane_checkbox("Auto", is_auto, toggle_lane_auto_range, cx))
         .child(div().text_xs().text_color(rgb(0xa1a1aa)).child("Min"))
         .child(min_field)
         .child(div().text_xs().text_color(rgb(0xa1a1aa)).child("Max"))
@@ -248,6 +208,54 @@ fn render_y_range_controls(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -
         .when_some(error, |this, message| {
             this.child(div().text_xs().text_color(rgb(0xf59e0b)).child(message))
         })
+}
+
+/// A divider between groups of lane controls.
+fn render_toolbar_separator() -> impl IntoElement {
+    div().w(px(1.0)).h(px(16.0)).mx_1().bg(rgb(0x3f3f46))
+}
+
+/// A checkbox in the lane toolbar.
+fn render_lane_checkbox(
+    label: &'static str,
+    checked: bool,
+    action: fn(&mut CanViewerApp),
+    cx: &mut Context<CanViewerApp>,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .cursor_pointer()
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                action(this);
+                cx.notify();
+            }),
+        )
+        .child(
+            div()
+                .size(px(12.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(2.0))
+                .border_1()
+                .border_color(if checked { rgb(0x3b82f6) } else { rgb(0x52525b) })
+                .when(checked, |this| this.bg(rgb(0x3b82f6)))
+                .text_size(px(9.0))
+                .text_color(rgb(0xffffff))
+                .child(if checked { "✓" } else { "" }),
+        )
+        .child(div().text_xs().text_color(rgb(0xe4e4e7)).child(label))
+}
+
+/// Show or hide sample dots on the selected lane.
+fn toggle_lane_points(app: &mut CanViewerApp) {
+    let selected = app.plot_lanes.selected;
+    let lane = &mut app.plot_lanes.lanes[selected];
+    lane.show_points = !lane.show_points;
 }
 
 /// An editable Min or Max box.
@@ -426,7 +434,6 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
     let drag_start = app.zoom_drag_start_x;
     let drag_current = app.zoom_drag_current_x;
     let start_time = app.start_time;
-    let show_points = app.show_plot_points;
     let cursor_time = app.plot_cursor_time;
 
     // Constant offsets based on layout:
@@ -450,7 +457,6 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
             &series_data,
             time_range,
             start_time,
-            show_points,
             cursor_time,
             cx,
         ));
@@ -835,7 +841,6 @@ fn render_lane(
     series_data: &Arc<[Series]>,
     time_range: Option<(f64, f64)>,
     start_time: Option<chrono::NaiveDateTime>,
-    show_points: bool,
     cursor_time: Option<f64>,
     cx: &mut Context<CanViewerApp>,
 ) -> AnyElement {
@@ -895,7 +900,7 @@ fn render_lane(
             range,
             lane.y_range,
             start_time,
-            show_points,
+            lane.show_points,
             cursor_time,
         )
         .into_any_element(),

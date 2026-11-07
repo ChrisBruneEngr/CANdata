@@ -139,7 +139,6 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 ### Toolbar
 
 - **Reset Zoom** — appears only when zoomed; restores the full time range.
-- **Points: ON/OFF** — toggles whether individual data points are rendered as dots.
 
 ### Zoom
 
@@ -172,7 +171,8 @@ Signals are plotted in lanes, which share the available height and scroll once t
 - **+ Add Lane** adds a lane at the bottom and selects it.
 - **Delete Lane** deletes the selected lane and stops plotting its signals. The last lane is emptied instead of deleted.
 - **↑ Move Up** and **↓ Move Down** swap the selected lane with its neighbour.
-- A signal set saves the lanes with their signals and Y limits, and loading it restores them. Sets saved before lanes existed open with one signal per lane.
+- **Points** shows or hides a dot at each sample in the selected lane. It's on for new lanes.
+- A signal set saves the lanes with their signals, Y limits and Points setting, and loading it restores them. Sets saved before lanes existed open with one signal per lane.
 - Up to 20 signals are plotted; a warning appears above the lanes beyond that.
 
 ### Y-axis range

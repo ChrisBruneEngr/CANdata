@@ -18,6 +18,13 @@ pub struct SavedLane {
     /// User-defined (min, max) Y limits. `None` means automatic.
     #[serde(default)]
     pub y_range: Option<(f64, f64)>,
+    /// Lanes saved before this setting existed show points.
+    #[serde(default = "show_points_by_default")]
+    pub show_points: bool,
+}
+
+fn show_points_by_default() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +99,7 @@ pub fn saved_lanes_from_layout(layout: &crate::plot_lanes::LaneLayout) -> Vec<Sa
         .map(|lane| SavedLane {
             entries: lane.signals.iter().filter_map(|id| parse_signal_id(id)).collect(),
             y_range: lane.y_range,
+            show_points: lane.show_points,
         })
         .collect()
 }
@@ -112,6 +120,7 @@ pub fn layout_from_set(
             .map(|lane| PlotLane {
                 signals: lane.entries.iter().map(|e| signal_id(e, channel_type)).collect(),
                 y_range: lane.y_range,
+                show_points: lane.show_points,
             })
             .collect(),
     )
@@ -314,9 +323,10 @@ mod tests {
                 PlotLane {
                     signals: vec!["CAN:1:256:A".into(), "CAN:1:256:B".into()],
                     y_range: Some((-5.0, 100.5)),
+                    show_points: false,
                 },
-                PlotLane { signals: Vec::new(), y_range: None },
-                PlotLane { signals: vec!["CAN:1:256:A".into()], y_range: None },
+                PlotLane::default(),
+                PlotLane { signals: vec!["CAN:1:256:A".into()], ..Default::default() },
             ],
             selected: 2,
         };
@@ -331,12 +341,19 @@ mod tests {
     }
 
     #[test]
+    fn lanes_saved_before_the_points_setting_show_points() {
+        let json = r#"{"entries":[],"y_range":null}"#;
+        let lane: SavedLane = serde_json::from_str(json).unwrap();
+        assert!(lane.show_points);
+    }
+
+    #[test]
     fn unparseable_signals_are_left_out_of_saved_lanes() {
         use crate::plot_lanes::{LaneLayout, PlotLane};
 
         let layout = LaneLayout::from_lanes(vec![PlotLane {
             signals: vec!["bad".into(), "CAN:1:256:A".into()],
-            y_range: None,
+            ..Default::default()
         }]);
         assert_eq!(saved_lanes_from_layout(&layout)[0].entries, vec![entry("A")]);
     }
