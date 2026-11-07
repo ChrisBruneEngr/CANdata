@@ -6,6 +6,7 @@
 //! StatusBar, not here.
 
 use crate::app::{AppView, CanViewerApp};
+use crate::models::SignalListMode;
 use crate::ui::theme::colors;
 use crate::ui::theme::spacing;
 use gpui::{prelude::*, *};
@@ -122,6 +123,40 @@ pub fn render_top_bar(
             cx.stop_propagation();
             view_for_help.update(cx, |app, cx| {
                 app.show_help_menu = !app.show_help_menu;
+                app.show_settings_menu = false;
+                cx.notify();
+            });
+        });
+
+    // Settings button, styled to match Help.
+    let show_settings_menu = app.show_settings_menu;
+    let view_for_settings = view.clone();
+    let settings_button = div()
+        .px(spacing::SM)
+        .h_full()
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .text_sm()
+        .text_color(if show_settings_menu {
+            colors::TEXT_PRIMARY
+        } else {
+            colors::TEXT_MUTED
+        })
+        .when(show_settings_menu, |el| el.bg(colors::SURFACE1))
+        .hover(|s| {
+            if show_settings_menu {
+                s
+            } else {
+                s.text_color(colors::TEXT_SECONDARY).bg(colors::SURFACE0)
+            }
+        })
+        .child("Settings")
+        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            cx.stop_propagation();
+            view_for_settings.update(cx, |app, cx| {
+                app.show_settings_menu = !app.show_settings_menu;
+                app.show_help_menu = false;
                 cx.notify();
             });
         });
@@ -144,9 +179,101 @@ pub fn render_top_bar(
         .child(library_button)
         // Center: spacer that fills remaining width so the right side sticks to the edge
         .child(div().flex_1())
-        // Right: Help button (all platforms) + window controls (non-macOS only)
+        // Right: Settings + Help buttons (all platforms) + window controls (non-macOS only)
+        .child(settings_button)
         .child(help_button)
         .when(!is_macos, |el| el.child(render_window_controls(view)))
+}
+
+/// Render the Settings dropdown over a full-window layer that closes it on an outside click.
+pub fn render_settings_menu(app: &CanViewerApp, view: Entity<CanViewerApp>) -> impl IntoElement {
+    let current = app.app_config.signal_list_mode;
+    let view_for_close = view.clone();
+    // Sit under the Settings button, clear of the Win/Linux window controls.
+    let right_offset = if cfg!(target_os = "macos") { px(16.) } else { px(124.) };
+
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w_full()
+        .h_full()
+        .bg(rgba(0x00000033))
+        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            view_for_close.update(cx, |app, cx| {
+                app.show_settings_menu = false;
+                cx.notify();
+            });
+        })
+        .child(
+            div()
+                .absolute()
+                .top(px(36.))
+                .right(right_offset)
+                .w(px(240.))
+                .bg(rgb(0x313244))
+                .border_1()
+                .border_color(rgb(0x45475a))
+                .rounded(px(6.))
+                .shadow_lg()
+                .flex()
+                .flex_col()
+                .py_1()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                    cx.stop_propagation();
+                })
+                .child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(rgb(0xa6adc8))
+                        .child("Plot signal list"),
+                )
+                .child(render_signal_list_option(
+                    "Grouped by message",
+                    SignalListMode::Grouped,
+                    current,
+                    view.clone(),
+                ))
+                .child(render_signal_list_option(
+                    "Alphabetical signals only",
+                    SignalListMode::Alphabetical,
+                    current,
+                    view,
+                )),
+        )
+}
+
+/// One selectable row in the Settings dropdown; the current choice shows a check mark.
+fn render_signal_list_option(
+    label: &'static str,
+    mode: SignalListMode,
+    current: SignalListMode,
+    view: Entity<CanViewerApp>,
+) -> impl IntoElement {
+    div()
+        .px_3()
+        .py_1()
+        .flex()
+        .items_center()
+        .gap_2()
+        .text_xs()
+        .text_color(rgb(0xcdd6f4))
+        .hover(|style| style.bg(rgb(0x45475a)))
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            cx.stop_propagation();
+            view.update(cx, |app, cx| {
+                app.app_config.signal_list_mode = mode;
+                app.show_settings_menu = false;
+                app.save_config(cx);
+                cx.notify();
+            });
+        })
+        .child(div().w(px(12.)).child(if mode == current { "✓" } else { "" }))
+        .child(label)
 }
 
 /// Render the Win/Linux window controls (minimize, maximize, close).

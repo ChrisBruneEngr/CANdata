@@ -73,6 +73,17 @@ fn default_channel_type() -> ChannelType {
     ChannelType::CAN
 }
 
+/// How the Plot view's signal list is laid out.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalListMode {
+    /// Channels and messages that expand to show their signals.
+    #[default]
+    Grouped,
+    /// One alphabetical list of signals, without message rows.
+    Alphabetical,
+}
+
 /// Application configuration
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AppConfig {
@@ -88,4 +99,7 @@ pub struct AppConfig {
     /// 当前激活的版本名称
     #[serde(default)]
     pub active_version_name: Option<String>,
+    /// Layout of the Plot view's signal list
+    #[serde(default)]
+    pub signal_list_mode: SignalListMode,
 }

@@ -2133,6 +2133,9 @@ impl Render for CanViewerApp {
                     div().hidden()
                 }
             })
+            .when(self.show_settings_menu, |el| {
+                el.child(crate::ui::components::top_bar::render_settings_menu(self, view.clone()))
+            })
             .child({
                 // Full-screen overlay to catch clicks outside help dropdown
                 if self.show_help_menu {

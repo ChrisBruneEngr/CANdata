@@ -5,7 +5,7 @@
 //! `render_signal_sidebar` wraps it in a `uniform_list`.
 
 use crate::app::CanViewerApp;
-use crate::models::ChannelMapping;
+use crate::models::{ChannelMapping, SignalListMode};
 use gpui::prelude::*;
 use gpui::*;
 
@@ -39,6 +39,8 @@ pub enum SidebarItem {
         is_can: bool,
         ch_id: u16,
         msg_id: u32,
+        /// Tells apart signals that share a name in the alphabetical list.
+        note: Option<String>,
     },
 }
 
@@ -187,7 +189,7 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                 )
                 .into_any_element()
         }
-        SidebarItem::SignalItem { name, id, size, is_selected, is_can, .. } => {
+        SidebarItem::SignalItem { name, id, size, is_selected, is_can, note, .. } => {
             let sig_id = id.clone();
             let is_selected = *is_selected;
             let size = *size;
@@ -243,6 +245,15 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                         .text_color(if is_selected { rgb(0xffffff) } else { rgb(0xa1a1aa) })
                         .child(name.clone())
                 )
+                .when_some(note.clone(), |this, note| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_color(rgb(0x71717a))
+                            .text_xs()
+                            .child(note)
+                    )
+                })
                 .child(
                     div()
                         .text_color(rgb(0x52525b))
@@ -254,24 +265,140 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
     }
 }
 
-/// Build the flattened, filtered list of sidebar items.
+/// Build the sidebar items for the layout chosen in Settings.
 ///
 /// Pure function: reads only `&CanViewerApp`, no cx / window / side effects.
-/// Search filter non-empty → force-expands matching channels/messages
-/// without modifying `expanded_channels` / `expanded_messages`.
 pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
-    let mut items = Vec::new();
-    let filter_text = app.signal_filter_text.to_lowercase();
-    let force_expand = !filter_text.is_empty();
+    match app.app_config.signal_list_mode {
+        SignalListMode::Grouped => extract_grouped_signal_items(app),
+        SignalListMode::Alphabetical => extract_alphabetical_signal_items(app),
+    }
+}
 
-    // Count selected signals per channel (for the ChannelHeader badge)
-    let mut selected_by_channel: std::collections::HashMap<u16, usize> = std::collections::HashMap::new();
+/// Count selected signals per channel (for the ChannelHeader badge).
+fn selected_counts_by_channel(app: &CanViewerApp) -> std::collections::HashMap<u16, usize> {
+    let mut selected_by_channel = std::collections::HashMap::new();
     for sig_id in &app.selected_signals {
         let parts: Vec<&str> = sig_id.split(':').collect();
         if let Some(ch) = parts.get(1).and_then(|s| s.parse::<u16>().ok()) {
             *selected_by_channel.entry(ch).or_insert(0) += 1;
         }
     }
+    selected_by_channel
+}
+
+/// True if a message or frame matches the search text by name or hex ID.
+fn message_matches(name: &str, id: u32, filter_text: &str) -> bool {
+    name.to_lowercase().contains(filter_text)
+        || format!("0x{:x}", id).to_lowercase().contains(filter_text)
+}
+
+/// Build one alphabetical list of signals across all loaded channels. Channels
+/// that still need loading stay listed first, since their Load button lives there.
+fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
+    struct Entry {
+        sort_name: String,
+        name: String,
+        id: String,
+        size: u32,
+        is_can: bool,
+        ch_id: u16,
+        msg_id: u32,
+    }
+
+    let filter_text = app.signal_filter_text.to_lowercase();
+    let mut entries: Vec<Entry> = Vec::new();
+
+    for (ch_id, dbc) in &app.dbc_channels {
+        let ch_id = *ch_id;
+        for msg in dbc.messages.values() {
+            let matches_msg = message_matches(&msg.name, msg.id, &filter_text);
+            for sig in msg.signals.values() {
+                if matches_msg || sig.name.to_lowercase().contains(&filter_text) {
+                    entries.push(Entry {
+                        sort_name: sig.name.to_lowercase(),
+                        name: sig.name.clone(),
+                        id: format!("CAN:{}:{}:{}", ch_id, msg.id, sig.name),
+                        size: sig.signal_size,
+                        is_can: true,
+                        ch_id,
+                        msg_id: msg.id,
+                    });
+                }
+            }
+        }
+    }
+
+    for (ch_id, ldf) in &app.ldf_channels {
+        let ch_id = *ch_id;
+        for frame in ldf.frames.values() {
+            let matches_frame = message_matches(&frame.name, frame.id, &filter_text);
+            for mapping in &frame.signals {
+                if matches_frame || mapping.signal_name.to_lowercase().contains(&filter_text) {
+                    entries.push(Entry {
+                        sort_name: mapping.signal_name.to_lowercase(),
+                        name: mapping.signal_name.clone(),
+                        id: format!("LIN:{}:{}:{}", ch_id, frame.id, mapping.signal_name),
+                        size: ldf.signals.get(&mapping.signal_name).map(|s| s.size).unwrap_or(0),
+                        is_can: false,
+                        ch_id,
+                        msg_id: frame.id,
+                    });
+                }
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| {
+        (&a.sort_name, a.ch_id, a.msg_id).cmp(&(&b.sort_name, b.ch_id, b.msg_id))
+    });
+
+    let mut name_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for entry in &entries {
+        *name_counts.entry(entry.sort_name.as_str()).or_insert(0) += 1;
+    }
+
+    let mut items = Vec::new();
+    let loaded_channels: std::collections::HashSet<u16> = app
+        .dbc_channels
+        .keys()
+        .chain(app.ldf_channels.keys())
+        .copied()
+        .collect();
+    push_unloaded_channels(
+        app,
+        &mut items,
+        &loaded_channels,
+        &filter_text,
+        &selected_counts_by_channel(app),
+    );
+
+    for entry in &entries {
+        let is_duplicate = name_counts.get(entry.sort_name.as_str()).is_some_and(|n| *n > 1);
+        items.push(SidebarItem::SignalItem {
+            name: entry.name.clone(),
+            id: entry.id.clone(),
+            size: entry.size,
+            is_selected: app.selected_signals.contains(&entry.id),
+            is_can: entry.is_can,
+            ch_id: entry.ch_id,
+            msg_id: entry.msg_id,
+            note: is_duplicate.then(|| format!("Ch{} 0x{:X}", entry.ch_id, entry.msg_id)),
+        });
+    }
+
+    items
+}
+
+/// Build the flattened, filtered channel/message/signal tree.
+///
+/// Search filter non-empty → force-expands matching channels/messages
+/// without modifying `expanded_channels` / `expanded_messages`.
+fn extract_grouped_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
+    let mut items = Vec::new();
+    let filter_text = app.signal_filter_text.to_lowercase();
+    let force_expand = !filter_text.is_empty();
+    let selected_by_channel = selected_counts_by_channel(app);
 
     // === Loaded CAN (DBC) channels ===
     let mut dbc_keys: Vec<u16> = app.dbc_channels.keys().copied().collect();
@@ -325,6 +452,7 @@ pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                                     is_can: true,
                                     ch_id,
                                     msg_id: msg.id,
+                                    note: None,
                                 });
                             }
                         }
@@ -400,6 +528,7 @@ pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                                     is_can: false,
                                     ch_id,
                                     msg_id: frame.id,
+                                    note: None,
                                 });
                             }
                         }
@@ -428,6 +557,20 @@ pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
     let loaded_channels: std::collections::HashSet<u16> = items.iter()
         .filter_map(|i| if let SidebarItem::ChannelHeader { ch_id, .. } = i { Some(*ch_id) } else { None })
         .collect();
+    push_unloaded_channels(app, &mut items, &loaded_channels, &filter_text, &selected_by_channel);
+
+    items
+}
+
+/// Add a header, with its Load button, for each configured channel not yet loaded.
+fn push_unloaded_channels(
+    app: &CanViewerApp,
+    items: &mut Vec<SidebarItem>,
+    loaded_channels: &std::collections::HashSet<u16>,
+    filter_text: &str,
+    selected_by_channel: &std::collections::HashMap<u16, usize>,
+) {
+    let force_expand = !filter_text.is_empty();
 
     for mapping in &app.app_config.mappings {
         if mapping.library_id.is_some()
@@ -438,7 +581,7 @@ pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
             let ch_type_str = if mapping.channel_type.is_can() { "CAN" } else { "LIN" };
             let ch_name = format!("Channel {} ({}) [Unloaded]", ch_id, ch_type_str);
 
-            if filter_text.is_empty() || ch_name.to_lowercase().contains(&filter_text) {
+            if filter_text.is_empty() || ch_name.to_lowercase().contains(filter_text) {
                 items.push(SidebarItem::ChannelHeader {
                     name: ch_name,
                     ch_id,
@@ -452,8 +595,6 @@ pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
             }
         }
     }
-
-    items
 }
 
 /// Items produced by `build_set_dropdown_items` for the signal-sets dropdown.

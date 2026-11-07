@@ -130,7 +130,8 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 - Items are grouped by channel (CAN blue / LIN yellow), then message, then signal.
 - Channels that have a configured library mapping but aren't loaded show a **Load** button — click to load that library version.
 - Each signal has a 12×12 px checkbox; click to add/remove from the selection.
-- The **Plot N signals (Plot)** button at the bottom of the sidebar runs the data extraction.
+- Charts update as soon as a signal is checked or unchecked.
+- **Settings → Plot signal list** chooses between **Grouped by message** (the default) and **Alphabetical signals only**, one sorted list without message rows. Signals sharing a name show their channel and message ID. Search still matches message names and IDs. The choice is saved.
 
 ### Toolbar
 

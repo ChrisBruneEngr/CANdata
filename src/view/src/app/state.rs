@@ -247,6 +247,7 @@ pub struct CanViewerApp {
     pub show_file_menu: bool,
     // Help menu dropdown state
     pub show_help_menu: bool,
+    pub show_settings_menu: bool,
 
     // Selected row index (for row-highlight on click-to-copy)
     pub selected_row_index: Option<usize>,
@@ -440,6 +441,7 @@ impl CanViewerApp {
             show_file_menu: false,
             // Help menu dropdown state
             show_help_menu: false,
+            show_settings_menu: false,
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),
             expanded_messages: std::collections::HashSet::new(),
