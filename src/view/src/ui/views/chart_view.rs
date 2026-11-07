@@ -1,13 +1,14 @@
 use crate::app::CanViewerApp;
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::{Input, InputEvent, InputState};
 use crate::models::{DataPoint, Series};
-use crate::plot_lanes::{auto_value_range, PlotLane};
+use crate::plot_lanes::{auto_value_range, format_y_limit, parse_y_range, PlotLane};
 use super::plot_sidebar::DraggedSignal;
 use blf::LogObject;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::ActiveTheme;
 use gpui_component::PixelsExt;
+use gpui_component::Sizable;
 use gpui_component::v_flex;
 use gpui_component::scroll::ScrollableElement;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entit
 
     // Signals are added and removed from several places, so lanes catch up here.
     app.plot_lanes.sync_with_selection(&app.selected_signals);
+    refresh_y_range_inputs(app, window, cx);
 
     // Check if plot data size is reasonable
     if series_data.len() > 100 {
@@ -146,6 +148,7 @@ fn render_lane_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> im
 
     div()
         .flex()
+        .flex_wrap()
         .items_center()
         .gap_2()
         .px_4()
@@ -167,6 +170,8 @@ fn render_lane_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> im
             |app| app.plot_lanes.move_selected_down(),
             cx,
         ))
+        .child(div().w(px(1.0)).h(px(16.0)).mx_1().bg(rgb(0x3f3f46)))
+        .child(render_y_range_controls(app, cx))
         .when(over_limit, |this| {
             this.child(
                 div()
@@ -175,6 +180,149 @@ fn render_lane_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> im
                     .child(format!("Only the first {} signals are plotted", MAX_SIGNALS)),
             )
         })
+}
+
+/// Render the selected lane's Y-axis controls: Auto, then Min and Max.
+fn render_y_range_controls(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl IntoElement {
+    let lane = &app.plot_lanes.lanes[app.plot_lanes.selected];
+    let is_auto = lane.y_range.is_none();
+
+    // While Auto is on, show the range it picked instead of editable boxes.
+    let (min_field, max_field) = match (&app.plot_y_min_input, &app.plot_y_max_input) {
+        (Some(min), Some(max)) if !is_auto => (render_y_input(min), render_y_input(max)),
+        _ => {
+            let (min, max) = lane_auto_range(app, lane)
+                .map_or(("-".to_string(), "-".to_string()), |(min, max)| {
+                    (format_y_limit(min), format_y_limit(max))
+                });
+            (render_y_auto_value(min), render_y_auto_value(max))
+        }
+    };
+    let error = y_input_range(app, cx).and_then(Result::err).filter(|_| !is_auto);
+
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(div().text_xs().text_color(rgb(0xa1a1aa)).child("Y:"))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .cursor_pointer()
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this: &mut CanViewerApp, _, _, cx| {
+                        toggle_lane_auto_range(this);
+                        cx.notify();
+                    }),
+                )
+                .child(
+                    div()
+                        .size(px(12.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(2.0))
+                        .border_1()
+                        .border_color(if is_auto { rgb(0x3b82f6) } else { rgb(0x52525b) })
+                        .when(is_auto, |this| this.bg(rgb(0x3b82f6)))
+                        .text_size(px(9.0))
+                        .text_color(rgb(0xffffff))
+                        .child(if is_auto { "✓" } else { "" }),
+                )
+                .child(div().text_xs().text_color(rgb(0xe4e4e7)).child("Auto")),
+        )
+        .child(div().text_xs().text_color(rgb(0xa1a1aa)).child("Min"))
+        .child(min_field)
+        .child(div().text_xs().text_color(rgb(0xa1a1aa)).child("Max"))
+        .child(max_field)
+        .when_some(error, |this, message| {
+            this.child(div().text_xs().text_color(rgb(0xf59e0b)).child(message))
+        })
+}
+
+/// An editable Min or Max box.
+fn render_y_input(input: &Entity<InputState>) -> AnyElement {
+    div().w(px(90.0)).child(Input::new(input).small()).into_any_element()
+}
+
+/// A read-only Min or Max value, shown while Auto is on.
+fn render_y_auto_value(value: String) -> AnyElement {
+    div()
+        .w(px(90.0))
+        .px_2()
+        .text_xs()
+        .text_color(rgb(0x71717a))
+        .child(value)
+        .into_any_element()
+}
+
+/// The range Auto picks for a lane: everything visible in its signals.
+fn lane_auto_range(app: &CanViewerApp, lane: &PlotLane) -> Option<(f64, f64)> {
+    auto_value_range(
+        lane.signals
+            .iter()
+            .filter_map(|id| app.plot_data.iter().find(|series| &series.name == id))
+            .flat_map(|series| series.points.iter().map(|p| p.value)),
+    )
+}
+
+/// Switch the selected lane between Auto and its own limits. Turning Auto off starts
+/// from the current range, so the plot doesn't jump.
+fn toggle_lane_auto_range(app: &mut CanViewerApp) {
+    let selected = app.plot_lanes.selected;
+    let lane = &app.plot_lanes.lanes[selected];
+    let new_range = match lane.y_range {
+        Some(_) => None,
+        None => Some(lane_auto_range(app, lane).unwrap_or((0.0, 1.0))),
+    };
+    app.plot_lanes.lanes[selected].y_range = new_range;
+}
+
+/// Reload the Min and Max boxes when the selected lane's limits differ from what they
+/// hold, such as after selecting another lane. New boxes are created rather than
+/// updated, so loading a value can't look like typing and change a lane.
+fn refresh_y_range_inputs(app: &mut CanViewerApp, window: &mut Window, cx: &mut Context<CanViewerApp>) {
+    let range = app.plot_lanes.lanes[app.plot_lanes.selected].y_range;
+    let boxes_exist = app.plot_y_min_input.is_some();
+    if range == app.plot_y_inputs_loaded && boxes_exist == range.is_some() {
+        return;
+    }
+
+    app.plot_y_inputs_loaded = range;
+    app.plot_y_min_input = range.map(|(min, _)| new_y_limit_input(min, window, cx));
+    app.plot_y_max_input = range.map(|(_, max)| new_y_limit_input(max, window, cx));
+}
+
+/// Create a Min or Max box. Valid values apply as they're typed, so nothing depends
+/// on the box losing focus and a value can't land on the wrong lane.
+fn new_y_limit_input(
+    value: f64,
+    window: &mut Window,
+    cx: &mut Context<CanViewerApp>,
+) -> Entity<InputState> {
+    let input = cx.new(|cx| InputState::new(window, cx).default_value(format_y_limit(value)));
+    cx.subscribe(&input, |this, _input, event, cx| {
+        if matches!(event, InputEvent::Change) {
+            if let Some(Ok(range)) = y_input_range(this, cx) {
+                let selected = this.plot_lanes.selected;
+                this.plot_lanes.lanes[selected].y_range = Some(range);
+                this.plot_y_inputs_loaded = Some(range);
+            }
+            cx.notify();
+        }
+    })
+    .detach();
+    input
+}
+
+/// What the Min and Max boxes currently hold, if they're showing.
+fn y_input_range(app: &CanViewerApp, cx: &App) -> Option<Result<(f64, f64), &'static str>> {
+    let min = app.plot_y_min_input.as_ref()?.read(cx).value();
+    let max = app.plot_y_max_input.as_ref()?.read(cx).value();
+    Some(parse_y_range(&min, &max))
 }
 
 /// A lane toolbar button. Disabled buttons are dimmed and do nothing.
@@ -701,6 +849,7 @@ fn render_lane(
             series_data.clone(),
             traces,
             range,
+            lane.y_range,
             start_time,
             show_points,
             cursor_time,
@@ -771,6 +920,7 @@ fn render_lane_plot(
     series_data: Arc<[Series]>,
     traces: Vec<(usize, Hsla)>,
     time_range: (f64, f64),
+    y_range: Option<(f64, f64)>,
     start_time: Option<chrono::NaiveDateTime>,
     show_points: bool,
     cursor_time: Option<f64>,
@@ -781,10 +931,14 @@ fn render_lane_plot(
     gpui::canvas(
         move |bounds, _window, _cx| {
             // All signals in a lane share one Y range; every lane shares one time range.
-            let values = prepaint_traces
-                .iter()
-                .flat_map(|(i, _)| prepaint_series[*i].points.iter().map(|p| p.value));
-            let (min_v, max_v) = auto_value_range(values)?;
+            let (min_v, max_v) = match y_range {
+                Some(range) => range,
+                None => auto_value_range(
+                    prepaint_traces
+                        .iter()
+                        .flat_map(|(i, _)| prepaint_series[*i].points.iter().map(|p| p.value)),
+                )?,
+            };
             let (min_t, max_t) = time_range;
             Some(ChartLayout {
                 bounds,
@@ -820,6 +974,15 @@ fn render_lane_plot(
             };
 
             let stroke_color = cx.theme().border;
+
+            // Limits can cut through a signal, so its lines stay inside the plot area.
+            // The small margin keeps a line along the very edge fully visible.
+            let plot_area = ContentMask {
+                bounds: gpui::Bounds::new(
+                    point(origin_x - px(2.), origin_y - px(2.)),
+                    size(chart_w + px(4.), chart_h + px(4.)),
+                ),
+            };
 
             // === Axis lines ===
             {
@@ -907,36 +1070,38 @@ fn render_lane_plot(
             gpui_component::plot::PlotLabel::new(x_labels).paint(&bounds, window, cx);
 
             // === Signal lines and optional points ===
-            for (series_index, color) in traces.iter() {
-                let points = &series_data[*series_index].points;
+            window.with_content_mask(Some(plot_area.clone()), |window| {
+                for (series_index, color) in traces.iter() {
+                    let points = &series_data[*series_index].points;
 
-                let mut builder = PathBuilder::stroke(px(1.0));
-                let mut started = false;
-                for p in points.iter() {
-                    let position = point(to_x(p.time), to_y(p.value));
-                    if started {
-                        builder.line_to(position);
-                    } else {
-                        builder.move_to(position);
-                        started = true;
-                    }
-                }
-                if started {
-                    if let Ok(path) = builder.build() {
-                        window.paint_path(path, *color);
-                    }
-                }
-
-                if show_points {
+                    let mut builder = PathBuilder::stroke(px(1.0));
+                    let mut started = false;
                     for p in points.iter() {
-                        let dot_bounds = gpui::Bounds::new(
-                            point(to_x(p.time) - px(1.5), to_y(p.value) - px(1.5)),
-                            size(px(3.), px(3.)),
-                        );
-                        window.paint_quad(gpui::fill(dot_bounds, *color));
+                        let position = point(to_x(p.time), to_y(p.value));
+                        if started {
+                            builder.line_to(position);
+                        } else {
+                            builder.move_to(position);
+                            started = true;
+                        }
+                    }
+                    if started {
+                        if let Ok(path) = builder.build() {
+                            window.paint_path(path, *color);
+                        }
+                    }
+
+                    if show_points {
+                        for p in points.iter() {
+                            let dot_bounds = gpui::Bounds::new(
+                                point(to_x(p.time) - px(1.5), to_y(p.value) - px(1.5)),
+                                size(px(3.), px(3.)),
+                            );
+                            window.paint_quad(gpui::fill(dot_bounds, *color));
+                        }
                     }
                 }
-            }
+            });
 
             // === Cursor line, and a marker on each signal ===
             let Some(cursor) = cursor_time else {
@@ -953,21 +1118,23 @@ fn render_lane_plot(
                 window.paint_path(path, gpui::rgba(0xd4d4d8cc));
             }
 
-            for (series_index, color) in traces.iter() {
-                let points = &series_data[*series_index].points;
-                // Latest sample at or before the cursor: the same rule as the
-                // signal list, so the two always agree.
-                let idx = points.partition_point(|p| p.time <= cursor);
-                if let Some(marker) = idx.checked_sub(1).and_then(|i| points.get(i)) {
-                    window.paint_quad(gpui::fill(
-                        gpui::Bounds::new(
-                            point(to_x(marker.time) - px(2.), to_y(marker.value) - px(2.)),
-                            size(px(4.), px(4.)),
-                        ),
-                        *color,
-                    ));
+            window.with_content_mask(Some(plot_area), |window| {
+                for (series_index, color) in traces.iter() {
+                    let points = &series_data[*series_index].points;
+                    // Latest sample at or before the cursor: the same rule as the
+                    // signal list, so the two always agree.
+                    let idx = points.partition_point(|p| p.time <= cursor);
+                    if let Some(marker) = idx.checked_sub(1).and_then(|i| points.get(i)) {
+                        window.paint_quad(gpui::fill(
+                            gpui::Bounds::new(
+                                point(to_x(marker.time) - px(2.), to_y(marker.value) - px(2.)),
+                                size(px(4.), px(4.)),
+                            ),
+                            *color,
+                        ));
+                    }
                 }
-            }
+            });
         },
     )
     .size_full()

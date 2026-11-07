@@ -8,6 +8,8 @@
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlotLane {
     pub signals: Vec<String>,
+    /// User-defined (min, max) Y limits. `None` means the range is automatic.
+    pub y_range: Option<(f64, f64)>,
 }
 
 /// The ordered lanes. There is always at least one, and `selected` is always valid.
@@ -132,6 +134,7 @@ impl LaneLayout {
                     .iter()
                     .map(|s| PlotLane {
                         signals: vec![(*s).clone()],
+                        ..Default::default()
                     })
                     .collect();
                 self.lanes.retain(|lane| !lane.signals.is_empty());
@@ -161,6 +164,28 @@ pub fn auto_value_range(values: impl Iterator<Item = f64>) -> Option<(f64, f64)>
     Some((min, max))
 }
 
+/// Read typed Y limits, or explain why they can't be used.
+pub fn parse_y_range(min: &str, max: &str) -> Result<(f64, f64), &'static str> {
+    let parse = |text: &str| text.trim().parse::<f64>().ok().filter(|v| v.is_finite());
+    let (Some(min), Some(max)) = (parse(min), parse(max)) else {
+        return Err("Min and Max must be numbers");
+    };
+    if min >= max {
+        return Err("Min must be less than Max");
+    }
+    Ok((min, max))
+}
+
+/// Format a Y limit for display, without trailing zeros.
+pub fn format_y_limit(value: f64) -> String {
+    let text = format!("{:.6}", value);
+    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
+    match trimmed {
+        "" | "-" | "-0" => "0".to_string(),
+        _ => trimmed.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +200,7 @@ mod tests {
                 .iter()
                 .map(|names| PlotLane {
                     signals: signals(names),
+                    ..Default::default()
                 })
                 .collect(),
             selected,
@@ -340,6 +366,47 @@ mod tests {
         assert_eq!(auto_value_range([5.0, 5.0].into_iter()), Some((0.0, 5.0)));
         assert_eq!(auto_value_range([-5.0].into_iter()), Some((-5.0, 0.0)));
         assert_eq!(auto_value_range([0.0].into_iter()), Some((0.0, 1.0)));
+    }
+
+    #[test]
+    fn y_limits_parse_with_spaces_decimals_and_negatives() {
+        assert_eq!(parse_y_range(" -10 ", "2.5"), Ok((-10.0, 2.5)));
+    }
+
+    #[test]
+    fn y_limits_must_be_finite_numbers() {
+        let message = Err("Min and Max must be numbers");
+        assert_eq!(parse_y_range("", "5"), message);
+        assert_eq!(parse_y_range("5", "abc"), message);
+        assert_eq!(parse_y_range("-", "5"), message);
+        assert_eq!(parse_y_range("inf", "5"), message);
+        assert_eq!(parse_y_range("0", "NaN"), message);
+    }
+
+    #[test]
+    fn y_min_must_be_below_y_max() {
+        let message = Err("Min must be less than Max");
+        assert_eq!(parse_y_range("5", "5"), message);
+        assert_eq!(parse_y_range("10", "5"), message);
+    }
+
+    #[test]
+    fn y_limits_format_without_trailing_zeros() {
+        assert_eq!(format_y_limit(100.0), "100");
+        assert_eq!(format_y_limit(2.5), "2.5");
+        assert_eq!(format_y_limit(-40.0), "-40");
+        assert_eq!(format_y_limit(0.0), "0");
+        assert_eq!(format_y_limit(-0.0000001), "0");
+        assert_eq!(format_y_limit(0.30000000000000004), "0.3");
+    }
+
+    #[test]
+    fn moving_a_lane_keeps_its_y_range() {
+        let mut l = layout(&[&["a"], &["b"]], 1);
+        l.lanes[1].y_range = Some((0.0, 10.0));
+        l.move_selected_up();
+        assert_eq!(l.lanes[0].y_range, Some((0.0, 10.0)));
+        assert_eq!(l.lanes[1].y_range, None);
     }
 
     #[test]

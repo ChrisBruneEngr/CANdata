@@ -250,6 +250,10 @@ pub struct CanViewerApp {
     // Help menu dropdown state
     pub show_help_menu: bool,
     pub show_settings_menu: bool,
+    pub plot_y_min_input: Option<Entity<InputState>>,
+    pub plot_y_max_input: Option<Entity<InputState>>,
+    /// The Y range the Min and Max boxes currently hold.
+    pub plot_y_inputs_loaded: Option<(f64, f64)>,
 
     // Selected row index (for row-highlight on click-to-copy)
     pub selected_row_index: Option<usize>,
@@ -442,6 +446,9 @@ impl CanViewerApp {
             // Help menu dropdown state
             show_help_menu: false,
             show_settings_menu: false,
+            plot_y_min_input: None,
+            plot_y_max_input: None,
+            plot_y_inputs_loaded: None,
             plot_lanes: Default::default(),
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),

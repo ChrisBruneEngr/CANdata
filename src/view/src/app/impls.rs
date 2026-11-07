@@ -145,6 +145,9 @@ impl CanViewerApp {
             // Help menu dropdown state
             show_help_menu: false,
             show_settings_menu: false,
+            plot_y_min_input: None,
+            plot_y_max_input: None,
+            plot_y_inputs_loaded: None,
             plot_lanes: Default::default(),
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),
@@ -677,6 +680,9 @@ impl CanViewerApp {
         self.channel_name_input = None;
         self.channel_db_path_input = None;
         self.signal_search_input = None;
+        self.plot_y_min_input = None;
+        self.plot_y_max_input = None;
+        self.plot_y_inputs_loaded = None;
         self.signal_filter_text = "".into();  // Reset filter text to prevent observe callback loop
 
         // Reset view to LogView (safest view with no complex state)
@@ -908,6 +914,9 @@ impl CanViewerApp {
             // Help menu dropdown state
             show_help_menu: false,
             show_settings_menu: false,
+            plot_y_min_input: None,
+            plot_y_max_input: None,
+            plot_y_inputs_loaded: None,
             plot_lanes: Default::default(),
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),

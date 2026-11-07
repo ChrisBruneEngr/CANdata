@@ -173,6 +173,10 @@ Signals are plotted in lanes, which share the available height and scroll once t
 - Loading a signal set gives each of its signals a lane of its own.
 - Up to 20 signals are plotted; a warning appears above the lanes beyond that.
 
+### Y-axis range
+
+The **Y** controls above the lanes apply to the selected lane. With **Auto** on, the lane fits everything visible and Min and Max show the range it chose. Turn Auto off to set your own limits: Min and Max start from the current range, and valid values apply as you type. Min must be less than Max; a message appears beside the boxes otherwise, and the lane keeps its last valid range. Anything outside the limits is cut off at the edge of the plot. Limits stay with the lane when it moves.
+
 ### Lane header
 
 `{signal name} [{unit}] {value at cursor}` for each signal in the lane, in that signal's colour.
