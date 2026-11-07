@@ -150,7 +150,7 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 
 Click a chart to place the cursor. It stays where you put it until you click somewhere else:
 
-- Each chart draws a vertical line at the cursor, with a marker and value on the signal's latest sample at or before that time.
+- Each chart draws a vertical line at the cursor, with a marker on the signal's latest sample at or before that time. The value appears in the chart's header.
 - The signal list shows every signal's value at the cursor in a right-aligned column, whether or not it is plotted. A signal with no value has not been received by that time.
 - The toolbar shows the cursor's exact time.
 
@@ -162,7 +162,7 @@ X-axis labels use absolute `YYYY-MM-DD HH:MM:SS.mmm` when the BLF has a start ti
 
 ### Per-chart header
 
-`{signal name} [{unit}] | {N} pts | {min}s-{max}s (span: {span}s)`
+`{signal name} [{unit}] {value at cursor}`
 
 ### Empty state
 

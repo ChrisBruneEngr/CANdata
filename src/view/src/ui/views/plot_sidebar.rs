@@ -294,7 +294,7 @@ fn selected_counts_by_channel(app: &CanViewerApp) -> std::collections::HashMap<u
 }
 
 /// A signal's list label: its name, followed by its unit in brackets if it has one.
-fn signal_label(name: &str, unit: &str) -> String {
+pub fn signal_label(name: &str, unit: &str) -> String {
     let unit = super::chart_view::display_unit(unit);
     if unit.is_empty() {
         name.to_string()

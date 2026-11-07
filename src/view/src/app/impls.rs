@@ -2403,7 +2403,6 @@ mod tests {
         let mut app = CanViewerApp::new_state();
         app.selected_signals = vec![signal_id.to_string()];
         let series = Series {
-            decimals: 0,
             name: signal_id.to_string(),
             color: gpui::hsla(0.0, 0.0, 0.0, 1.0),
             unit: None,
