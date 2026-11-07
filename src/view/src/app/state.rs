@@ -236,10 +236,10 @@ pub struct CanViewerApp {
 
     // Plot interaction state
     pub hover_point: Option<HoverPoint>,
-    pub plot_hover_time: Option<f64>,
-    pub plot_hover_x: Option<Pixels>,
-    pub plot_hover_y: Option<Pixels>,
-    pub plot_width_px: Pixels,
+    /// Time of the cursor set by clicking a chart.
+    pub plot_cursor_time: Option<f64>,
+    /// Formatted value of every signal at the cursor, keyed by signal ID.
+    pub plot_cursor_values: std::collections::HashMap<String, String>,
     /// Scroll handle for the plot canvas (vertical scroll over the chart list).
     pub plot_scroll_handle: gpui::ScrollHandle,
 
@@ -432,10 +432,8 @@ impl CanViewerApp {
             // Plot display settings
             show_plot_points: true,
             hover_point: None,
-            plot_hover_time: None,
-            plot_hover_x: None,
-            plot_hover_y: None,
-            plot_width_px: gpui::px(0.0),
+            plot_cursor_time: None,
+            plot_cursor_values: std::collections::HashMap::new(),
             plot_scroll_handle: gpui::ScrollHandle::new(),
             // File menu dropdown state
             show_file_menu: false,
@@ -522,8 +520,6 @@ impl CanViewerApp {
         self.plot_full_time_min = state.plot_full_time_min;
         self.plot_full_time_max = state.plot_full_time_max;
         self.show_plot_points = state.show_plot_points;
-        // plot_width_px will be recalculated based on new window size
-        self.plot_width_px = gpui::px(0.0);
         self.selected_signals = state.selected_signals;
         self.dbc_channels = state.dbc_channels;
         self.ldf_channels = state.ldf_channels;

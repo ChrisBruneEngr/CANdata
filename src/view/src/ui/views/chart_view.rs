@@ -58,7 +58,6 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entit
                 .h_full()
                 .flex()
                 .flex_col()
-                .relative()  // for hover tooltip absolute positioning (sibling to scroll container, so it doesn't extend the scroll bounds)
                 .child(render_toolbar(app, cx))
                 .child(
                     if !has_data {
@@ -69,18 +68,6 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entit
                             .into_any_element()
                     } else {
                         render_chart_canvas(app, series_data.clone(), cx)
-                    }
-                )
-                .child(
-                    // Hover tooltip rendered as a sibling of the scroll container
-                    // (NOT inside v_flex) so its absolute positioning doesn't
-                    // extend the scroll content bounds (which caused infinite
-                    // scroll-down past the last card).
-                    if has_data {
-                        render_hover_tooltip_overlay(app, &series_data, px(320.0))
-                            .into_any_element()
-                    } else {
-                        div().into_any_element()
                     }
                 )
         )
@@ -103,8 +90,16 @@ fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl In
             div()
                 .text_xs()
                 .text_color(rgb(0x71717a))
-                .child("⌘/Ctrl + wheel = zoom · wheel = scroll")
+                .child("Click = set cursor · drag = zoom · ⌘/Ctrl + wheel = zoom · wheel = scroll")
         )
+        .when_some(app.plot_cursor_time, |this, time| {
+            this.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0xd4d4d8))
+                    .child(format!("Cursor: {}", format_time_relative_or_absolute(time, app.start_time)))
+            )
+        })
         .child(
             div()
                 .flex()
@@ -184,15 +179,14 @@ fn render_empty_state(app: &CanViewerApp) -> AnyElement {
         .into_any_element()
 }
 
-/// Render the chart canvas — legend + zoom box + hover tooltip + per-signal canvas cards.
+/// Render the chart canvas — legend + zoom box + per-signal canvas cards.
 fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut Context<CanViewerApp>) -> AnyElement {
     let is_dragging = app.is_dragging_zoom;
     let drag_start = app.zoom_drag_start_x;
     let drag_current = app.zoom_drag_current_x;
     let start_time = app.start_time;
     let show_points = app.show_plot_points;
-    let hover_x = app.plot_hover_x;
-    let hover_time = app.plot_hover_time;
+    let cursor_time = app.plot_cursor_time;
 
     // Constant offsets based on layout:
     //   sidebar 320 → v_flex p_4 left 16 → card p_2 left 8 → canvas pad_left 36
@@ -227,7 +221,7 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
         .children(app.selected_signals.iter().map(|signal_id| {
             let series = series_data.iter().find(|s| &s.name == signal_id);
             match series {
-                Some(s) => render_single_chart(s, start_time, show_points, hover_x, hover_time).into_any_element(),
+                Some(s) => render_single_chart(s, start_time, show_points, cursor_time).into_any_element(),
                 None => render_no_data_chart(signal_id),
             }
         }))
@@ -259,8 +253,6 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
                 this
             }
         })
-        // Hover tooltip is rendered in render_plot_view as a sibling of the
-        // scroll container (NOT inside v_flex) — see render_hover_tooltip_overlay.
         // Global Canvas Interactions
         .on_mouse_down(MouseButton::Left, cx.listener(move |this: &mut CanViewerApp, event: &MouseDownEvent, _, cx| {
              // Check for double-click to reset zoom
@@ -278,68 +270,11 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
              this.zoom_drag_current_x = Some(event.position.x);
              cx.notify();
         }))
-        .on_mouse_move(cx.listener(move |this: &mut CanViewerApp, event: &MouseMoveEvent, window, cx| {
+        .on_mouse_move(cx.listener(move |this: &mut CanViewerApp, event: &MouseMoveEvent, _, cx| {
             // Handle Zoom Dragging
             if this.is_dragging_zoom {
                 this.zoom_drag_current_x = Some(event.position.x);
                 cx.notify();
-            }
-
-            // Handle Hover
-            // We need to calculate time based on mouse position
-            let mouse_x = event.position.x;
-
-            // Throttle: only notify if mouse moved more than 1px to reduce render load
-            let prev_hover_x = this.plot_hover_x.unwrap_or(px(-9999.0));
-            let moved_enough = (mouse_x - prev_hover_x).abs() > px(1.0);
-
-            // Calculate visible width — use the actual drawing area (matches
-            // what render_single_chart uses for canvas pad_left/pad_right), not
-            // the outer scroll-container bounds.
-            let window_width = window.bounds().size.width;
-            let draw_width = window_width - draw_origin_x - draw_right_margin;
-            this.plot_width_px = draw_width;
-
-            // Bounds check: only fire hover when mouse is over the actual chart
-            // drawing area (380 .. window_width - 28).
-            if mouse_x >= draw_origin_x && mouse_x <= (window_width - draw_right_margin) {
-                if moved_enough || this.is_dragging_zoom {
-                    this.plot_hover_x = Some(mouse_x);
-                    this.plot_hover_y = Some(event.position.y);
-
-                    // Determine time range
-                    let (min_t, max_t) = if let (Some(s), Some(e)) = (this.plot_zoom_start, this.plot_zoom_end) {
-                        (s, e)
-                    } else {
-                        let mut min_t = f64::MAX;
-                        let mut max_t = f64::MIN;
-                        for series in this.plot_data.iter() {
-                            for p in series.points.iter() {
-                                if p.time < min_t { min_t = p.time; }
-                                if p.time > max_t { max_t = p.time; }
-                            }
-                        }
-                        if min_t == f64::MAX { (0.0, 1.0) } else { (min_t, max_t) }
-                    };
-
-                    // Interpolate against the actual drawing-area geometry so the
-                    // hover vertical line drawn by each chart card lines up with
-                    // the mouse cursor.
-                    let rel_x = (mouse_x - draw_origin_x) / draw_width;
-                    let rel_x = f32::max(0.0, f32::min(1.0, rel_x)); // Clamp
-
-                    let time_range = max_t - min_t;
-                    let time = min_t + time_range * rel_x as f64;
-
-                    this.plot_hover_time = Some(time);
-                    cx.notify();
-                }
-            } else if this.plot_hover_x.is_some() {
-                 // Clear hover if moved out (approximate)
-                 this.plot_hover_x = None;
-                 this.plot_hover_y = None;
-                 this.plot_hover_time = None;
-                 cx.notify();
             }
         }))
         .on_mouse_up(MouseButton::Left, cx.listener(move |this: &mut CanViewerApp, event: &MouseUpEvent, window, cx| {
@@ -393,6 +328,10 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
                         // Fast filter: just slice plot_full_data, no message re-scan
                         crate::ui::views::chart_view::apply_zoom_to_full_data(this);
                     }
+                } else {
+                    // Too short to be a zoom drag: treat it as a click to set the cursor.
+                    let draw_right = window.bounds().size.width - draw_right_margin;
+                    set_plot_cursor(this, end_x, draw_origin_x, draw_right);
                 }
             }
             
@@ -600,125 +539,6 @@ fn format_time_relative_or_absolute(time: f64, _start_time: Option<chrono::Naive
     dt.naive_utc().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
 }
 
-/// Render the hover tooltip as an overlay sibling of the scroll container.
-/// Rendered inside the right main area (which has `.relative()`), so absolute
-/// positioning stays within the main area and does NOT extend the scroll
-/// container's content bounds (which previously caused infinite scroll-down).
-///
-/// If hover state is None, returns an empty div (no tooltip shown).
-fn render_hover_tooltip_overlay(
-    app: &CanViewerApp,
-    series_data: &[Series],
-    sidebar_width: Pixels,
-) -> impl IntoElement {
-    let (hover_x, hover_y, hover_time) = match (app.plot_hover_x, app.plot_hover_y, app.plot_hover_time) {
-        (Some(x), Some(y), Some(t)) => (x, y, t),
-        _ => return div().into_any_element(),
-    };
-    let chart_width = app.plot_width_px;
-    // Right main area starts at sidebar_width (sidebar on left).
-    // Local coordinates inside main area: x = hover_x - sidebar_width, y = hover_y - 0.
-    // (render_plot_view fills the whole window; main area top = 0.)
-    let local_x = hover_x - sidebar_width;
-    render_hover_tooltip(local_x, hover_y, hover_time, series_data, sidebar_width, chart_width, app.start_time).into_any_element()
-}
-
-/// Render tooltip for hover over chart.
-/// `local_x` is the mouse x inside the main area (after subtracting sidebar width).
-/// `local_y` is the mouse y inside the main area (from window top, since main area top = 0).
-fn render_hover_tooltip(
-    local_x_in: Pixels,
-    local_y_in: Pixels,
-    hover_time: f64,
-    series_data: &[Series],
-    _sidebar_width: Pixels,
-    chart_width: Pixels,
-    start_time: Option<chrono::NaiveDateTime>
-) -> impl IntoElement {
-    // Collect values near this time
-    let mut values = Vec::new();
-    for series in series_data {
-        // Simple linear search or binary search
-        if series.points.is_empty() { continue; }
-        
-        // Find closest point
-        // Optimize: verify logic using partition_point for sorted data
-        let idx = series.points.partition_point(|p| p.time < hover_time);
-        
-        let p_after = series.points.get(idx);
-        let p_before = if idx > 0 { series.points.get(idx - 1) } else { None };
-        
-        // Find closest
-        let val = match (p_before, p_after) {
-            (Some(b), Some(a)) => {
-                let diff_b = (hover_time - b.time).abs();
-                let diff_a = (a.time - hover_time).abs();
-                if diff_b < diff_a { b.value } else { a.value }
-            },
-            (Some(b), None) => b.value,
-            (None, Some(a)) => a.value,
-            (None, None) => 0.0,
-        };
-        
-        values.push((series.clone(), val));
-    }
-
-    // Determine tooltip position
-    // local_x is already the x relative to main area
-    let local_x = local_x_in;
-
-    // Check if we need to flip to left
-    let tooltip_width_estimate = px(220.0); // Rough estimate
-    let space_right = chart_width - local_x;
-
-    let (tooltip_left, _align_right) = if space_right < tooltip_width_estimate {
-        // Not enough space, place to left of cursor
-        (local_x - tooltip_width_estimate - px(10.0), true)
-    } else {
-        // Place to right
-        (local_x + px(10.0), false)
-    };
-
-    div()
-        .absolute()
-        .top(local_y_in)
-        .left(tooltip_left)
-        .bg(rgba(0x18181be6)) // Dark bg with transparency
-        .border_1()
-        .border_color(rgb(0x3f3f46))
-        .rounded_md()
-        .shadow_md()
-        .p_3()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .text_xs()
-                .font_weight(FontWeight::BOLD)
-                .text_color(rgb(0xe4e4e7))
-                .child(format_time_relative_or_absolute(hover_time, start_time))
-        )
-        .children(values.into_iter().map(|(series, val)| {
-             div()
-                 .flex()
-                 .items_center()
-                 .gap_2()
-                 .child(
-                     div()
-                         .size(px(8.0))
-                         .rounded_full()
-                         .bg(series.color)
-                 )
-                 .child(
-                     div()
-                         .text_xs()
-                         .text_color(rgb(0xd4d4d8))
-                         .child(format!("{}: {:.2} {}", series.name.split(':').last().unwrap_or(&series.name), val, series.unit.as_deref().unwrap_or("")))
-                 )
-        }))
-}
-
 /// Render a placeholder card matching `render_single_chart`'s visual style
 /// for a selected signal that has no data points in the current log.
 fn render_no_data_chart(signal_id: &str) -> AnyElement {
@@ -763,12 +583,12 @@ fn render_single_chart(
     series: &Series,
     start_time: Option<chrono::NaiveDateTime>,
     show_points: bool,
-    hover_x: Option<Pixels>,
-    hover_time: Option<f64>,
+    cursor_time: Option<f64>,
 ) -> impl IntoElement {
     let points = Arc::new(series.points.clone());
     let color = series.color;
     let unit = series.unit.clone();
+    let decimals = series.decimals;
     let start_time_for_paint = start_time;
     let title = format!(
         "{} {} | {} pts",
@@ -998,8 +818,8 @@ fn render_single_chart(
                             // === 7. 悬停竖线 + 最近点数值标签 ===
                             // 鼠标在 plot 区时，每张卡片都画一条贯穿 top→x_axis_y 的竖线，
                             // 并在最近的数据点处显示一个带边框的小数值气泡。
-                            if let (Some(hx), Some(ht)) = (hover_x, hover_time) {
-                                // 只在 hover_time 落在 [min_t, max_t] 范围内才画
+                            if let Some(ht) = cursor_time {
+                                // 只在 cursor_time 落在 [min_t, max_t] 范围内才画
                                 let max_t = layout.min_t + layout.t_range;
                                 if ht >= layout.min_t && ht <= max_t {
                                     let line_x = origin_x
@@ -1019,36 +839,25 @@ fn render_single_chart(
                                                 gpui::rgba(0xd4d4d8cc),
                                             );
                                         }
-                                        // 找最近的数据点
-                                        let idx = points
-                                            .partition_point(|p| p.time < ht);
-                                        let p_before = if idx > 0 {
-                                            points.get(idx - 1)
-                                        } else {
-                                            None
-                                        };
-                                        let p_after = points.get(idx);
-                                        let nearest = match (p_before, p_after) {
-                                            (Some(b), Some(a)) => {
-                                                let db = (ht - b.time).abs();
-                                                let da = (a.time - ht).abs();
-                                                if db < da { b } else { a }
-                                            }
-                                            (Some(b), None) => b,
-                                            (None, Some(a)) => a,
-                                            (None, None) => return,
+                                        // Latest sample at or before the cursor: the same rule
+                                        // as the signal list, so the two always agree.
+                                        let idx = points.partition_point(|p| p.time <= ht);
+                                        let Some(marker) =
+                                            idx.checked_sub(1).and_then(|i| points.get(i))
+                                        else {
+                                            return;
                                         };
                                         // 高亮该点（4px 圆点，比 show_points 大）
                                         let dot_y = origin_y
                                             + px(
-                                                ((layout.max_v - nearest.value)
+                                                ((layout.max_v - marker.value)
                                                     / layout.v_range
                                                     * chart_h.as_f32() as f64)
                                                     as f32,
                                             );
                                         let dot_x = origin_x
                                             + px(
-                                                ((nearest.time - layout.min_t) / layout.t_range
+                                                ((marker.time - layout.min_t) / layout.t_range
                                                     * chart_w.as_f32() as f64) as f32,
                                             );
                                         window.paint_quad(gpui::fill(
@@ -1060,8 +869,9 @@ fn render_single_chart(
                                         ));
                                         // 在高亮点上方显示数值标签
                                         let label_text = format!(
-                                            "{:.2}{}",
-                                            nearest.value,
+                                            "{:.*}{}",
+                                            decimals,
+                                            marker.value,
                                             unit.as_deref().unwrap_or("")
                                         );
                                         // 标签放在点上方 6px，左对齐，避免遮挡折线
@@ -1174,6 +984,7 @@ fn filter_series_data_by_zoom(app: &CanViewerApp) -> Arc<[Series]> {
             name: series.name.clone(),
             color: series.color,
             unit: series.unit.clone(),
+            decimals: series.decimals,
             points: filtered_points,
             time_labels: Vec::new(), // Will be regenerated by renderer
         }
@@ -1258,6 +1069,7 @@ pub fn extract_series_data(app: &CanViewerApp) -> Arc<[Series]> {
 
         let target_channel = channel_filter.and_then(|s| s.parse::<u16>().ok());
         let mut unit = None;
+        let mut decimals = 0; // LIN values are whole numbers
         let mut points = Vec::new();
         let mut collected = 0;
 
@@ -1318,7 +1130,10 @@ pub fn extract_series_data(app: &CanViewerApp) -> Arc<[Series]> {
                     if let Some(dbc_msg) = dbc.messages.get(&m_id) {
                         if let Some(sig) = dbc_msg.signals.get(&sig_name) {
                             if unit.is_none() && !sig.unit.is_empty() {
-                                unit = Some(sig.unit.clone());
+                                unit = Some(display_unit(&sig.unit).to_string());
+                            }
+                            if points.is_empty() {
+                                decimals = sig.decimal_places();
                             }
                             let val = sig.decode(data);
                             points.push(DataPoint { time, value: val, index: 0 });
@@ -1426,6 +1241,7 @@ pub fn extract_series_data(app: &CanViewerApp) -> Arc<[Series]> {
         all_series.push(Series {
             name: sig_id.clone(),
             unit,
+            decimals,
             points: points.into(),
             color: colors[idx % colors.len()],
             time_labels,
@@ -1489,6 +1305,7 @@ pub fn apply_zoom_to_full_data(app: &mut CanViewerApp) {
             name: series.name.clone(),
             color: series.color,
             unit: series.unit.clone(),
+            decimals: series.decimals,
             points: filtered_pts,
             time_labels,
         }
@@ -1540,6 +1357,110 @@ pub fn extract_and_update_series_data(app: &mut CanViewerApp) {
 
     // Now apply zoom filter to set plot_data
     apply_zoom_to_full_data(app);
+
+    // The library or selection may have changed, so refresh the cursor values.
+    update_cursor_values(app);
+}
+
+/// Set the cursor from a click at `mouse_x`. Clicks outside the chart drawing
+/// area are ignored.
+fn set_plot_cursor(app: &mut CanViewerApp, mouse_x: Pixels, draw_left: Pixels, draw_right: Pixels) {
+    if mouse_x < draw_left || mouse_x > draw_right || draw_right <= draw_left {
+        return;
+    }
+
+    let (min_t, max_t) = if let (Some(s), Some(e)) = (app.plot_zoom_start, app.plot_zoom_end) {
+        (s, e)
+    } else {
+        let times = app.plot_data.iter().flat_map(|series| series.points.iter()).map(|p| p.time);
+        let (min_t, max_t) = times.fold((f64::MAX, f64::MIN), |(lo, hi), t| (lo.min(t), hi.max(t)));
+        if min_t > max_t {
+            return; // Nothing plotted yet
+        }
+        (min_t, max_t)
+    };
+
+    let rel_x = ((mouse_x - draw_left) / (draw_right - draw_left)).clamp(0.0, 1.0);
+    app.plot_cursor_time = Some(min_t + (max_t - min_t) * rel_x as f64);
+    update_cursor_values(app);
+}
+
+/// The identifying fields of a CAN or LIN frame: (ID, channel, timestamp, data).
+fn frame_fields(msg: &LogObject) -> Option<(u32, u16, u64, &[u8])> {
+    match msg {
+        LogObject::CanMessage(m) => Some((m.id, m.channel, m.header.object_time_stamp, &m.data[..])),
+        LogObject::CanMessage2(m) => Some((m.id, m.channel, m.header.object_time_stamp, &m.data[..])),
+        LogObject::CanFdMessage(m) => Some((m.id, m.channel, m.header.object_time_stamp, &m.data[..])),
+        LogObject::CanFdMessage64(m) => {
+            Some((m.id, m.channel as u16, m.header.object_time_stamp, &m.data[..]))
+        }
+        LogObject::LinMessage(m) => {
+            Some((m.id as u32, m.channel, m.header.object_time_stamp, &m.data[..]))
+        }
+        _ => None,
+    }
+}
+
+/// The part of a DBC unit to show. Units may be written "physical property:unit",
+/// such as "voltage:V"; anything else is shown as it is.
+pub fn display_unit(unit: &str) -> &str {
+    unit.rsplit(':').next().unwrap_or(unit).trim()
+}
+
+/// Format a value for the signal list, matching the precision shown on the charts.
+fn format_cursor_value(value: f64, decimals: usize) -> String {
+    format!("{:.*}", decimals, value)
+}
+
+/// Decode every signal at the cursor, plotted or not, from the latest frame of each
+/// message at or before that time. Runs once per click rather than on every frame.
+fn update_cursor_values(app: &mut CanViewerApp) {
+    let Some(cursor) = app.plot_cursor_time else {
+        app.plot_cursor_values.clear();
+        return;
+    };
+
+    let mut latest: std::collections::HashMap<(u16, u32), (u64, &[u8])> =
+        std::collections::HashMap::new();
+    for msg in app.messages.iter() {
+        let Some((id, channel, timestamp, data)) = frame_fields(msg) else {
+            continue;
+        };
+        // object_time_stamp is absolute Unix nanoseconds, as in extract_series_data.
+        if timestamp as f64 / 1_000_000_000.0 > cursor {
+            continue;
+        }
+        let slot = latest.entry((channel, id)).or_insert((timestamp, data));
+        if timestamp >= slot.0 {
+            *slot = (timestamp, data);
+        }
+    }
+
+    let mut values = std::collections::HashMap::new();
+    for ((channel, id), (_, data)) in &latest {
+        if let Some(message) = app.dbc_channels.get(channel).and_then(|db| db.messages.get(id)) {
+            for sig in message.signals.values() {
+                values.insert(
+                    format!("CAN:{}:{}:{}", channel, id, sig.name),
+                    format_cursor_value(sig.decode(data), sig.decimal_places()),
+                );
+            }
+        }
+        if let Some(ldf) = app.ldf_channels.get(channel) {
+            if let Some(frame) = ldf.frames.values().find(|f| f.id == *id) {
+                for mapping in &frame.signals {
+                    if let Some(sig) = ldf.signals.get(&mapping.signal_name) {
+                        values.insert(
+                            format!("LIN:{}:{}:{}", channel, id, mapping.signal_name),
+                            format_cursor_value(sig.decode(data, mapping.offset) as f64, 0),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    app.plot_cursor_values = values;
 }
 
 /// 按 80px/刻度估算 X 轴刻度数量，clamp [2, 6]。

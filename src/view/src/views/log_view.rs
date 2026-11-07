@@ -499,7 +499,7 @@ fn decode_can_signals(
                 .iter()
                 .map(|(sig_name, sig)| {
                     let val = sig.decode(&can_msg.data);
-                    format!("{}: {:.2}", sig_name, val)
+                    format!("{}: {:.*}", sig_name, sig.decimal_places(), val)
                 })
                 .collect();
             signals.join(", ")
@@ -523,7 +523,7 @@ fn decode_can2_signals(
                 .iter()
                 .map(|(sig_name, sig)| {
                     let val = sig.decode(&can_msg.data);
-                    format!("{}: {:.2}", sig_name, val)
+                    format!("{}: {:.*}", sig_name, sig.decimal_places(), val)
                 })
                 .collect();
             signals.join(", ")
@@ -547,7 +547,7 @@ fn decode_can_fd_signals(
                 .iter()
                 .map(|(sig_name, sig)| {
                     let val = sig.decode(&fd_msg.data);
-                    format!("{}: {:.2}", sig_name, val)
+                    format!("{}: {:.*}", sig_name, sig.decimal_places(), val)
                 })
                 .collect();
             signals.join(", ")
@@ -581,7 +581,7 @@ fn decode_can_fd_signals_64(
                 .iter()
                 .map(|(sig_name, sig)| {
                     let val = sig.decode(&fd_msg.data);
-                    format!("{}: {:.2}", sig_name, val)
+                    format!("{}: {:.*}", sig_name, sig.decimal_places(), val)
                 })
                 .collect();
             signals.join(", ")

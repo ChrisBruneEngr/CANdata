@@ -137,10 +137,8 @@ impl CanViewerApp {
             zoom_drag_current_x: None,
             show_plot_points: true,
             hover_point: None,
-            plot_hover_time: None,
-            plot_hover_x: None,
-            plot_hover_y: None,
-            plot_width_px: px(0.0),
+            plot_cursor_time: None,
+            plot_cursor_values: std::collections::HashMap::new(),
             plot_scroll_handle: gpui::ScrollHandle::new(),
             // File menu dropdown state
             show_file_menu: false,
@@ -309,6 +307,7 @@ impl CanViewerApp {
                 self.files.push(std::sync::Arc::new(segment));
                 self.rebuild_merged();
                 self.messages = self.merged.messages.clone();
+                self.clear_plot_cursor();
                 self.current_file_name = file_name;
                 self.library_picker_dismissed = false;
                 self.library_picker_selected_version.clear();
@@ -359,6 +358,7 @@ impl CanViewerApp {
                 self.files.push(std::sync::Arc::new(segment));
                 self.rebuild_merged();
                 self.messages = self.merged.messages.clone();
+                self.clear_plot_cursor();
                 // 更新 start_time 为所有文件中最早的 measurement_start_time
                 self.start_time = self.files.iter().filter_map(|f| f.start_time).min();
 
@@ -470,6 +470,7 @@ impl CanViewerApp {
         self.files.retain(|f| f.file_id != file_id);
         self.rebuild_merged();
         self.messages = self.merged.messages.clone();
+        self.clear_plot_cursor();
         // 更新 start_time 为剩余文件中最早的 measurement_start_time
         self.start_time = self.files.iter().filter_map(|f| f.start_time).min();
         let total_files = self.files.len();
@@ -498,6 +499,7 @@ impl CanViewerApp {
         self.files.clear();
         self.merged = crate::domain::multi_file::MergedView::empty();
         self.messages = std::sync::Arc::from([]);
+        self.clear_plot_cursor();
         self.plot_data = std::sync::Arc::from([]);
         self.plot_full_data = std::sync::Arc::from([]);
         self.selected_signals.clear();
@@ -595,7 +597,7 @@ impl CanViewerApp {
                     .iter()
                     .map(|(name, signal)| {
                         let val = signal.decode(data);
-                        format!("{}={:.2}", name, val)
+                        format!("{}={:.*}", name, signal.decimal_places(), val)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -701,9 +703,7 @@ impl CanViewerApp {
         self.zoom_drag_start_x = None;
         self.zoom_drag_current_x = None;
         self.hover_point = None;
-        self.plot_hover_time = None;
-        self.plot_hover_x = None;
-        self.plot_hover_y = None;
+        self.clear_plot_cursor();
 
         if self.is_maximized {
             // Restore to normal size
@@ -899,10 +899,8 @@ impl CanViewerApp {
             zoom_drag_current_x: None,
             show_plot_points: true,
             hover_point: None,
-            plot_hover_time: None,
-            plot_hover_x: None,
-            plot_hover_y: None,
-            plot_width_px: px(0.0),
+            plot_cursor_time: None,
+            plot_cursor_values: std::collections::HashMap::new(),
             plot_scroll_handle: gpui::ScrollHandle::new(),
             // File menu dropdown state
             show_file_menu: false,
@@ -1765,6 +1763,12 @@ impl CanViewerApp {
     }
 
     /// Hide channel input and clear values
+    /// Remove the plot cursor and the values shown for it.
+    pub fn clear_plot_cursor(&mut self) {
+        self.plot_cursor_time = None;
+        self.plot_cursor_values.clear();
+    }
+
     pub fn hide_add_channel_input(&mut self, cx: &mut Context<Self>) {
         self.show_add_channel_input = false;
         // Editing loads the channel's type into the form; don't leak it into the next add.
@@ -2399,6 +2403,7 @@ mod tests {
         let mut app = CanViewerApp::new_state();
         app.selected_signals = vec![signal_id.to_string()];
         let series = Series {
+            decimals: 0,
             name: signal_id.to_string(),
             color: gpui::hsla(0.0, 0.0, 0.0, 1.0),
             unit: None,

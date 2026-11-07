@@ -17,6 +17,20 @@ pub struct Signal {
 }
 
 impl Signal {
+    /// Decimal places needed to show this signal at its DBC resolution. Values are
+    /// `raw * factor + offset`, so both contribute: a factor of 0.1 needs one place
+    /// and a factor of 1 needs none. Factors with endless decimals stop at six.
+    pub fn decimal_places(&self) -> usize {
+        const MAX_PLACES: usize = 6;
+        let places = |number: f64| {
+            number
+                .to_string()
+                .split_once('.')
+                .map_or(0, |(_, fraction)| fraction.len())
+        };
+        places(self.factor).max(places(self.offset)).min(MAX_PLACES)
+    }
+
     pub fn decode(&self, data: &[u8]) -> f64 {
         let mut raw_value: u64 = 0;
 
@@ -297,6 +311,37 @@ impl DbcParser {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn decimal_places_follow_factor_and_offset() {
+        let places = |factor: f64, offset: f64| {
+            super::Signal {
+                name: String::new(),
+                start_bit: 0,
+                signal_size: 8,
+                byte_order: 1,
+                value_type: '+',
+                factor,
+                offset,
+                min: 0.0,
+                max: 0.0,
+                unit: String::new(),
+                receivers: Vec::new(),
+                comment: None,
+            }
+            .decimal_places()
+        };
+
+        assert_eq!(places(1.0, 0.0), 0);
+        assert_eq!(places(10.0, 0.0), 0);
+        assert_eq!(places(0.1, 0.0), 1);
+        assert_eq!(places(0.25, 0.0), 2);
+        assert_eq!(places(0.001, 0.0), 3);
+        assert_eq!(places(0.1, -40.0), 1);
+        assert_eq!(places(1.0, -40.0), 0);
+        assert_eq!(places(1.0, 0.5), 1);
+        assert_eq!(places(1.0 / 3.0, 0.0), 6);
+    }
+
     use super::*;
 
     #[test]

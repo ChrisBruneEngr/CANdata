@@ -34,13 +34,14 @@ pub enum SidebarItem {
     SignalItem {
         name: String,
         id: String,
-        size: u32,
         is_selected: bool,
         is_can: bool,
         ch_id: u16,
         msg_id: u32,
         /// Tells apart signals that share a name in the alphabetical list.
         note: Option<String>,
+        /// Value at the plot cursor, once a cursor is set and the signal has been received.
+        value: Option<String>,
     },
 }
 
@@ -189,13 +190,13 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                 )
                 .into_any_element()
         }
-        SidebarItem::SignalItem { name, id, size, is_selected, is_can, note, .. } => {
+        SidebarItem::SignalItem { name, id, is_selected, is_can, note, value, .. } => {
             let sig_id = id.clone();
             let is_selected = *is_selected;
-            let size = *size;
             let is_can = *is_can;
 
             div()
+                .w_full() // Keeps values right-aligned in one column
                 .px_4()
                 .h(px(24.0))
                 .flex_shrink_0()
@@ -241,6 +242,8 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                 .child(
                     div()
                         .flex_1()
+                        .min_w_0()
+                        .truncate() // A long name must not push the value out of the row
                         .text_xs()
                         .text_color(if is_selected { rgb(0xffffff) } else { rgb(0xa1a1aa) })
                         .child(name.clone())
@@ -254,12 +257,15 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                             .child(note)
                     )
                 })
-                .child(
-                    div()
-                        .text_color(rgb(0x52525b))
-                        .text_xs()
-                        .child(format!("{}b", size))
-                )
+                .when_some(value.clone(), |this, value| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_color(rgb(0xe4e4e7))
+                            .text_xs()
+                            .child(value)
+                    )
+                })
                 .into_any_element()
         }
     }
@@ -287,6 +293,16 @@ fn selected_counts_by_channel(app: &CanViewerApp) -> std::collections::HashMap<u
     selected_by_channel
 }
 
+/// A signal's list label: its name, followed by its unit in brackets if it has one.
+fn signal_label(name: &str, unit: &str) -> String {
+    let unit = super::chart_view::display_unit(unit);
+    if unit.is_empty() {
+        name.to_string()
+    } else {
+        format!("{} [{}]", name, unit)
+    }
+}
+
 /// True if a message or frame matches the search text by name or hex ID.
 fn message_matches(name: &str, id: u32, filter_text: &str) -> bool {
     name.to_lowercase().contains(filter_text)
@@ -300,7 +316,6 @@ fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
         sort_name: String,
         name: String,
         id: String,
-        size: u32,
         is_can: bool,
         ch_id: u16,
         msg_id: u32,
@@ -317,9 +332,8 @@ fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                 if matches_msg || sig.name.to_lowercase().contains(&filter_text) {
                     entries.push(Entry {
                         sort_name: sig.name.to_lowercase(),
-                        name: sig.name.clone(),
+                        name: signal_label(&sig.name, &sig.unit),
                         id: format!("CAN:{}:{}:{}", ch_id, msg.id, sig.name),
-                        size: sig.signal_size,
                         is_can: true,
                         ch_id,
                         msg_id: msg.id,
@@ -339,7 +353,6 @@ fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                         sort_name: mapping.signal_name.to_lowercase(),
                         name: mapping.signal_name.clone(),
                         id: format!("LIN:{}:{}:{}", ch_id, frame.id, mapping.signal_name),
-                        size: ldf.signals.get(&mapping.signal_name).map(|s| s.size).unwrap_or(0),
                         is_can: false,
                         ch_id,
                         msg_id: frame.id,
@@ -378,12 +391,12 @@ fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
         items.push(SidebarItem::SignalItem {
             name: entry.name.clone(),
             id: entry.id.clone(),
-            size: entry.size,
             is_selected: app.selected_signals.contains(&entry.id),
             is_can: entry.is_can,
             ch_id: entry.ch_id,
             msg_id: entry.msg_id,
             note: is_duplicate.then(|| format!("Ch{} 0x{:X}", entry.ch_id, entry.msg_id)),
+            value: app.plot_cursor_values.get(&entry.id).cloned(),
         });
     }
 
@@ -445,14 +458,14 @@ fn extract_grouped_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                             {
                                 let signal_id = format!("CAN:{}:{}:{}", ch_id, msg.id, sig.name);
                                 channel_items.push(SidebarItem::SignalItem {
-                                    name: sig.name.clone(),
+                                    name: signal_label(&sig.name, &sig.unit),
                                     id: signal_id.clone(),
-                                    size: sig.signal_size,
                                     is_selected: app.selected_signals.contains(&signal_id),
                                     is_can: true,
                                     ch_id,
                                     msg_id: msg.id,
                                     note: None,
+                                    value: app.plot_cursor_values.get(&signal_id).cloned(),
                                 });
                             }
                         }
@@ -519,16 +532,15 @@ fn extract_grouped_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                                 || matches_frame
                             {
                                 let signal_id = format!("LIN:{}:{}:{}", ch_id, frame.id, mapping.signal_name);
-                                let sig_size = ldf.signals.get(&mapping.signal_name).map(|s| s.size).unwrap_or(0);
                                 channel_items.push(SidebarItem::SignalItem {
                                     name: mapping.signal_name.clone(),
                                     id: signal_id.clone(),
-                                    size: sig_size,
                                     is_selected: app.selected_signals.contains(&signal_id),
                                     is_can: false,
                                     ch_id,
                                     msg_id: frame.id,
                                     note: None,
+                                    value: app.plot_cursor_values.get(&signal_id).cloned(),
                                 });
                             }
                         }

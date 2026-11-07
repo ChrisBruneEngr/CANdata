@@ -130,6 +130,8 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 - Items are grouped by channel (CAN blue / LIN yellow), then message, then signal.
 - Channels that have a configured library mapping but aren't loaded show a **Load** button — click to load that library version.
 - Each signal has a 12×12 px checkbox; click to add/remove from the selection.
+- Values use the decimal places the DBC's factor and offset call for: none for a factor of 1, one for a factor of 0.1.
+- Units follow the signal name in brackets, such as `INV_Motor_Speed [rpm]`. For a DBC unit written as `physical property:unit`, such as `voltage:V`, only the unit is shown.
 - Charts update as soon as a signal is checked or unchecked.
 - **Settings → Plot signal list** chooses between **Grouped by message** (the default) and **Alphabetical signals only**, one sorted list without message rows. Signals sharing a name show their channel and message ID. Search still matches message names and IDs. The choice is saved.
 
@@ -144,13 +146,15 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 - **Drag to zoom** — click-drag horizontally on a chart to select a region. Selections > 10 px commit the zoom; smaller selections are ignored.
 - **Double-click** — resets zoom.
 
-### Hover tooltip
+### Cursor
 
-Moving the mouse over a chart shows:
+Click a chart to place the cursor. It stays where you put it until you click somewhere else:
 
-- A vertical hover line at the cursor X.
-- A tooltip with the time (absolute if `start_time` is set, otherwise relative seconds) and one row per series with its colored dot, value, and unit.
-- The tooltip flips to the left of the cursor when there's not enough space on the right.
+- Each chart draws a vertical line at the cursor, with a marker and value on the signal's latest sample at or before that time.
+- The signal list shows every signal's value at the cursor in a right-aligned column, whether or not it is plotted. A signal with no value has not been received by that time.
+- The toolbar shows the cursor's exact time.
+
+The cursor clears when a different log is loaded or the window is maximized or restored.
 
 ### Time display
 
