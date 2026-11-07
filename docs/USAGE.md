@@ -129,10 +129,11 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 - **Search box** filters by signal name, message name, or ID.
 - Items are grouped by channel (CAN blue / LIN yellow), then message, then signal.
 - Channels that have a configured library mapping but aren't loaded show a **Load** button — click to load that library version.
-- Each signal has a 12×12 px checkbox; click to add/remove from the selection.
+- Drag a signal onto a lane to plot it there, or double-click it to add it to the selected lane.
+- A signal's square is filled with its line colour while it is plotted. If it is in several lanes, this is its colour in the first of them.
 - Values use the decimal places the DBC's factor and offset call for: none for a factor of 1, one for a factor of 0.1.
 - Units follow the signal name in brackets, such as `INV_Motor_Speed [rpm]`. For a DBC unit written as `physical property:unit`, such as `voltage:V`, only the unit is shown.
-- Charts update as soon as a signal is checked or unchecked.
+- Charts update as soon as a signal is added or removed.
 - **Settings → Plot signal list** chooses between **Grouped by message** (the default) and **Alphabetical signals only**, one sorted list without message rows. Signals sharing a name show their channel and message ID. Search still matches message names and IDs. The choice is saved.
 
 ### Toolbar
@@ -160,13 +161,25 @@ The cursor clears when a different log is loaded or the window is maximized or r
 
 X-axis labels use absolute `YYYY-MM-DD HH:MM:SS.mmm` when the BLF has a start time; otherwise relative seconds from the first message.
 
-### Per-chart header
+### Lanes
 
-`{signal name} [{unit}] {value at cursor}`
+Signals are plotted in lanes, which share the available height and scroll once they reach their minimum height. All lanes use the same time axis, and each lane fits one Y range to all of its signals. Each signal has its own colour within a lane.
 
-### Empty state
+- Click a lane to select it; the selected lane has a blue border. Clicking inside a plot also sets the cursor, while clicking a lane's header doesn't.
+- A signal can be in several lanes, but only once in each. Click **✕** next to a signal in a lane's header to remove it from that lane.
+- **+ Add Lane** adds a lane at the bottom and selects it.
+- **Delete Lane** deletes the selected lane and stops plotting its signals. The last lane is emptied instead of deleted.
+- **↑ Move Up** and **↓ Move Down** swap the selected lane with its neighbour.
+- Loading a signal set gives each of its signals a lane of its own.
+- Up to 20 signals are plotted; a warning appears above the lanes beyond that.
 
-Shows *"尚无数据显示"* / *"请在信号选择(Signals)中选择信号,点击Plot按钮加载数据"* plus a debug line with message and selection counts.
+### Lane header
+
+`{signal name} [{unit}] {value at cursor}` for each signal in the lane, in that signal's colour.
+
+### Empty lanes
+
+An empty lane shows a reminder to add a signal. A lane whose signals have no data in the log says so, and each of those signals is marked *(no data)* in its header.
 
 ---
 

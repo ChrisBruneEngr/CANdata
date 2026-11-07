@@ -145,6 +145,7 @@ impl CanViewerApp {
             // Help menu dropdown state
             show_help_menu: false,
             show_settings_menu: false,
+            plot_lanes: Default::default(),
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),
             expanded_messages: std::collections::HashSet::new(),
@@ -907,6 +908,7 @@ impl CanViewerApp {
             // Help menu dropdown state
             show_help_menu: false,
             show_settings_menu: false,
+            plot_lanes: Default::default(),
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),
             expanded_messages: std::collections::HashSet::new(),

@@ -35,6 +35,7 @@ pub struct RuntimeState {
     pub plot_full_time_max: Option<f64>,
     pub show_plot_points: bool,
     pub selected_signals: Vec<String>,
+    pub plot_lanes: crate::plot_lanes::LaneLayout,
     pub dbc_channels: HashMap<u16, DbcDatabase>,
     pub ldf_channels: HashMap<u16, LdfDatabase>,
     pub start_time: Option<chrono::NaiveDateTime>,
@@ -94,6 +95,7 @@ pub struct CanViewerApp {
     pub ldf_channels: HashMap<u16, LdfDatabase>,
     pub app_config: AppConfig,
     pub selected_signals: Vec<String>,
+    pub plot_lanes: crate::plot_lanes::LaneLayout,
     pub start_time: Option<chrono::NaiveDateTime>,
     pub plot_data: std::sync::Arc<[crate::models::Series]>,
     /// Full (unfiltered) decoded series — zoom only re-filters this, never re-decodes messages
@@ -440,6 +442,7 @@ impl CanViewerApp {
             // Help menu dropdown state
             show_help_menu: false,
             show_settings_menu: false,
+            plot_lanes: Default::default(),
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),
             expanded_messages: std::collections::HashSet::new(),
@@ -485,6 +488,7 @@ impl CanViewerApp {
             plot_full_time_max: self.plot_full_time_max,
             show_plot_points: self.show_plot_points,
             selected_signals: self.selected_signals.clone(),
+            plot_lanes: self.plot_lanes.clone(),
             dbc_channels: self.dbc_channels.clone(),
             ldf_channels: self.ldf_channels.clone(),
             start_time: self.start_time,
@@ -521,6 +525,7 @@ impl CanViewerApp {
         self.plot_full_time_max = state.plot_full_time_max;
         self.show_plot_points = state.show_plot_points;
         self.selected_signals = state.selected_signals;
+        self.plot_lanes = state.plot_lanes;
         self.dbc_channels = state.dbc_channels;
         self.ldf_channels = state.ldf_channels;
         self.start_time = state.start_time;

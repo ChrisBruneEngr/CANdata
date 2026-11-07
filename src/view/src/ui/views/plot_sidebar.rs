@@ -9,6 +9,28 @@ use crate::models::{ChannelMapping, SignalListMode};
 use gpui::prelude::*;
 use gpui::*;
 
+/// A signal being dragged from the list to a lane. It also draws its own drag preview.
+#[derive(Clone)]
+pub struct DraggedSignal {
+    pub id: String,
+    label: String,
+}
+
+impl Render for DraggedSignal {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .bg(rgb(0x27272a))
+            .border_1()
+            .border_color(rgb(0x3b82f6))
+            .rounded(px(4.0))
+            .text_xs()
+            .text_color(rgb(0xffffff))
+            .child(self.label.clone())
+    }
+}
+
 /// Items produced by `extract_signal_items` and consumed by `render_sidebar_item`.
 #[derive(Clone, Debug)]
 pub enum SidebarItem {
@@ -34,7 +56,8 @@ pub enum SidebarItem {
     SignalItem {
         name: String,
         id: String,
-        is_selected: bool,
+        /// Line colour, if a lane plots this signal.
+        plot_color: Option<Hsla>,
         is_can: bool,
         ch_id: u16,
         msg_id: u32,
@@ -190,12 +213,13 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                 )
                 .into_any_element()
         }
-        SidebarItem::SignalItem { name, id, is_selected, is_can, note, value, .. } => {
+        SidebarItem::SignalItem { name, id, plot_color, note, value, .. } => {
             let sig_id = id.clone();
-            let is_selected = *is_selected;
-            let is_can = *is_can;
+            let plot_color = *plot_color;
+            let dragged = DraggedSignal { id: id.clone(), label: name.clone() };
 
             div()
+                .id(id.clone())
                 .w_full() // Keeps values right-aligned in one column
                 .px_4()
                 .h(px(24.0))
@@ -203,41 +227,31 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                 .flex()
                 .items_center()
                 .gap_2()
+                .cursor_grab()
                 .hover(|s| s.bg(rgb(0x1a1a1b)))
+                .on_drag(dragged, |signal, _offset, _window, cx| cx.new(|_| signal.clone()))
+                .on_mouse_down(MouseButton::Left, {
+                    let view = view.clone();
+                    move |event: &MouseDownEvent, _, cx| {
+                        if event.click_count == 2 {
+                            view.update(cx, |this, cx| {
+                                let lane = this.plot_lanes.selected;
+                                crate::ui::views::chart_view::add_signal_to_lane(this, lane, &sig_id);
+                                cx.notify();
+                            });
+                        }
+                    }
+                })
                 .child(
+                    // Colour square: filled with the line colour when plotted
                     div()
                         .w(px(12.0))
                         .h(px(12.0))
+                        .flex_shrink_0()
                         .rounded(px(2.0))
                         .border_1()
-                        .border_color(if is_selected {
-                            if is_can { rgb(0x3b82f6) } else { rgb(0xeab308) }
-                        } else {
-                            rgb(0x3f3f46)
-                        })
-                        .bg(if is_selected {
-                            if is_can { rgb(0x3b82f6) } else { rgb(0xeab308) }
-                        } else {
-                            rgba(0x00000000)
-                        })
-                        .cursor_pointer()
-                        .on_mouse_down(MouseButton::Left, {
-                            let view = view.clone();
-                            move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    if let Some(pos) = this.selected_signals.iter().position(|s| s == &sig_id) {
-                                        this.selected_signals.remove(pos);
-                                    } else {
-                                        this.selected_signals.push(sig_id.clone());
-                                    }
-                                    // Manual edit: clear active set binding so the dropdown reverts to "Select a set…"
-                                    this.active_signal_set = None;
-                                    // Live plot: re-extract and update chart immediately on every selection change
-                                    crate::ui::views::chart_view::extract_and_update_series_data(this);
-                                    cx.notify();
-                                });
-                            }
-                        })
+                        .border_color(plot_color.unwrap_or(rgb(0x3f3f46).into()))
+                        .when_some(plot_color, |this, color| this.bg(color))
                 )
                 .child(
                     div()
@@ -245,7 +259,7 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
                         .min_w_0()
                         .truncate() // A long name must not push the value out of the row
                         .text_xs()
-                        .text_color(if is_selected { rgb(0xffffff) } else { rgb(0xa1a1aa) })
+                        .text_color(if plot_color.is_some() { rgb(0xffffff) } else { rgb(0xa1a1aa) })
                         .child(name.clone())
                 )
                 .when_some(note.clone(), |this, note| {
@@ -301,6 +315,13 @@ pub fn signal_label(name: &str, unit: &str) -> String {
     } else {
         format!("{} [{}]", name, unit)
     }
+}
+
+/// The colour a signal is plotted in, using the first lane that plots it.
+fn plot_color(app: &CanViewerApp, signal_id: &str) -> Option<Hsla> {
+    app.plot_lanes
+        .first_position(signal_id)
+        .map(super::chart_view::lane_color)
 }
 
 /// True if a message or frame matches the search text by name or hex ID.
@@ -391,7 +412,7 @@ fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
         items.push(SidebarItem::SignalItem {
             name: entry.name.clone(),
             id: entry.id.clone(),
-            is_selected: app.selected_signals.contains(&entry.id),
+            plot_color: plot_color(app, &entry.id),
             is_can: entry.is_can,
             ch_id: entry.ch_id,
             msg_id: entry.msg_id,
@@ -460,7 +481,7 @@ fn extract_grouped_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                                 channel_items.push(SidebarItem::SignalItem {
                                     name: signal_label(&sig.name, &sig.unit),
                                     id: signal_id.clone(),
-                                    is_selected: app.selected_signals.contains(&signal_id),
+                                    plot_color: plot_color(app, &signal_id),
                                     is_can: true,
                                     ch_id,
                                     msg_id: msg.id,
@@ -535,7 +556,7 @@ fn extract_grouped_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
                                 channel_items.push(SidebarItem::SignalItem {
                                     name: mapping.signal_name.clone(),
                                     id: signal_id.clone(),
-                                    is_selected: app.selected_signals.contains(&signal_id),
+                                    plot_color: plot_color(app, &signal_id),
                                     is_can: false,
                                     ch_id,
                                     msg_id: frame.id,

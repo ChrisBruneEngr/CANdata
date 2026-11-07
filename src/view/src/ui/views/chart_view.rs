@@ -1,6 +1,8 @@
 use crate::app::CanViewerApp;
 use gpui_component::input::{Input, InputState};
 use crate::models::{DataPoint, Series};
+use crate::plot_lanes::{auto_value_range, PlotLane};
+use super::plot_sidebar::DraggedSignal;
 use blf::LogObject;
 use gpui::prelude::*;
 use gpui::*;
@@ -11,10 +13,16 @@ use gpui_component::scroll::ScrollableElement;
 use std::sync::Arc;
 use chrono::{Timelike, Datelike};
 
+/// Only this many signals are decoded and plotted.
+const MAX_SIGNALS: usize = 20;
+
 /// Render the plot view with signal charts
 pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entity<CanViewerApp>, cx: &mut Context<CanViewerApp>) -> impl IntoElement {
     // Safety check: prevent crash from invalid plot state after window operations
     let series_data = app.plot_data.clone();
+
+    // Signals are added and removed from several places, so lanes catch up here.
+    app.plot_lanes.sync_with_selection(&app.selected_signals);
 
     // Check if plot data size is reasonable
     if series_data.len() > 100 {
@@ -28,12 +36,6 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entit
             .child(div().px_4().py_2().text_sm().text_color(rgb(0xff0000))
                 .child(format!("Error: Too many plot series ({}). Please reload the application.", series_data.len())));
     }
-
-    // Show the chart canvas as long as the user has selected signals — even if
-    // none of those signals have data in the log, render_chart_canvas will draw
-    // ⊘ no-data placeholder cards for them. Only fall back to render_empty_state
-    // when no signals are selected at all.
-    let has_data = !app.selected_signals.is_empty();
 
     div()
         .size_full()
@@ -59,17 +61,8 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entit
                 .flex()
                 .flex_col()
                 .child(render_toolbar(app, cx))
-                .child(
-                    if !has_data {
-                        div()
-                            .flex_1()
-                            .p_4()
-                            .child(render_empty_state(app))
-                            .into_any_element()
-                    } else {
-                        render_chart_canvas(app, series_data.clone(), cx)
-                    }
-                )
+                .child(render_lane_toolbar(app, cx))
+                .child(render_chart_canvas(app, series_data.clone(), cx))
         )
 }
 
@@ -146,40 +139,133 @@ fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl In
 }
 
 
-/// Render empty state when no signals are selected
-fn render_empty_state(app: &CanViewerApp) -> AnyElement {
-    let msg_count = app.messages.len();
-    let sel_count = app.selected_signals.len();
+/// Render the lane buttons above the lanes.
+fn render_lane_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl IntoElement {
+    let lanes = &app.plot_lanes;
+    let over_limit = app.selected_signals.len() > MAX_SIGNALS;
 
     div()
         .flex()
-        .flex_col()
         .items_center()
-        .justify_center()
-        .size_full()
-        .gap_3()
-        .child(
-            div()
-                .text_color(rgb(0x71717a))
-                .text_lg()
-                .child("No signals selected")
-        )
-        .child(
-            div()
-                .text_color(rgb(0x52525b))
-                .text_sm()
-                .child("Check signals in the Signals panel on the left to plot them")
-        )
-        .child(
-            div()
-                .text_color(rgb(0x52525b))
-                .text_xs()
-                .child(format!("Debug: Messages={}, Selected={}", msg_count, sel_count))
-        )
-        .into_any_element()
+        .gap_2()
+        .px_4()
+        .py_1()
+        .bg(rgb(0x131314))
+        .border_b_1()
+        .border_color(rgb(0x27272a))
+        .child(render_lane_button("+ Add Lane", true, |app| app.plot_lanes.add_lane(), cx))
+        .child(render_lane_button("Delete Lane", true, delete_selected_lane, cx))
+        .child(render_lane_button(
+            "↑ Move Up",
+            lanes.can_move_up(),
+            |app| app.plot_lanes.move_selected_up(),
+            cx,
+        ))
+        .child(render_lane_button(
+            "↓ Move Down",
+            lanes.can_move_down(),
+            |app| app.plot_lanes.move_selected_down(),
+            cx,
+        ))
+        .when(over_limit, |this| {
+            this.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0xf59e0b))
+                    .child(format!("Only the first {} signals are plotted", MAX_SIGNALS)),
+            )
+        })
 }
 
-/// Render the chart canvas — legend + zoom box + per-signal canvas cards.
+/// A lane toolbar button. Disabled buttons are dimmed and do nothing.
+fn render_lane_button(
+    label: &'static str,
+    enabled: bool,
+    action: fn(&mut CanViewerApp),
+    cx: &mut Context<CanViewerApp>,
+) -> impl IntoElement {
+    div()
+        .px_2()
+        .py_1()
+        .rounded(px(4.0))
+        .bg(rgb(0x27272a))
+        .text_xs()
+        .text_color(if enabled { rgb(0xe4e4e7) } else { rgb(0x52525b) })
+        .when(enabled, |this| {
+            this.cursor_pointer()
+                .hover(|s| s.bg(rgb(0x3f3f46)))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                        action(this);
+                        cx.notify();
+                    }),
+                )
+        })
+        .child(label)
+}
+
+/// Plot a signal in a lane and select that lane. A lane holds each signal only once.
+pub fn add_signal_to_lane(app: &mut CanViewerApp, lane: usize, signal_id: &str) {
+    app.plot_lanes.select(lane);
+    if !app.plot_lanes.add_signal(lane, signal_id) {
+        return;
+    }
+    if !app.selected_signals.iter().any(|s| s == signal_id) {
+        app.selected_signals.push(signal_id.to_string());
+    }
+    app.active_signal_set = None;
+    extract_and_update_series_data(app);
+}
+
+/// Take a signal out of one lane, and stop plotting it if no other lane uses it.
+fn remove_signal_from_lane(app: &mut CanViewerApp, lane: usize, signal_id: &str) {
+    app.plot_lanes.remove_signal(lane, signal_id);
+    let lanes = &app.plot_lanes;
+    app.selected_signals.retain(|signal| lanes.contains(signal));
+    app.active_signal_set = None;
+    extract_and_update_series_data(app);
+}
+
+/// Delete the selected lane and stop plotting signals no other lane uses.
+fn delete_selected_lane(app: &mut CanViewerApp) {
+    app.plot_lanes.delete_selected();
+    let lanes = &app.plot_lanes;
+    app.selected_signals.retain(|signal| lanes.contains(signal));
+    app.active_signal_set = None;
+    extract_and_update_series_data(app);
+}
+
+/// The time range every lane shows: the zoom window, or all plotted data.
+fn visible_time_range(app: &CanViewerApp) -> Option<(f64, f64)> {
+    if let (Some(start), Some(end)) = (app.plot_zoom_start, app.plot_zoom_end) {
+        return Some((start, end));
+    }
+    app.plot_data
+        .iter()
+        .filter_map(|series| Some((series.points.first()?.time, series.points.last()?.time)))
+        .reduce(|(lo, hi), (first, last)| (lo.min(first), hi.max(last)))
+}
+
+/// Line colour for the signal at `position` within a lane.
+pub fn lane_color(position: usize) -> Hsla {
+    const COLORS: [(f32, f32, f32); 10] = [
+        (217.0, 0.91, 0.60),
+        (142.0, 0.71, 0.45),
+        (35.0, 0.92, 0.50),
+        (280.0, 0.61, 0.60),
+        (0.0, 0.84, 0.60),
+        (180.0, 0.71, 0.50),
+        (55.0, 0.85, 0.55),
+        (320.0, 0.70, 0.65),
+        (95.0, 0.60, 0.55),
+        (20.0, 0.50, 0.60),
+    ];
+    let (hue, saturation, lightness) = COLORS[position % COLORS.len()];
+    hsla(hue / 360.0, saturation, lightness, 1.0)
+}
+
+/// Render the chart canvas — zoom box + one card per lane.
 fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut Context<CanViewerApp>) -> AnyElement {
     let is_dragging = app.is_dragging_zoom;
     let drag_start = app.zoom_drag_start_x;
@@ -199,36 +285,40 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
     let card_pad = px(8.0);          // card .p_2()
     let canvas_pad_left = px(36.0);  // canvas pad_left
     let canvas_pad_right = px(4.0);  // canvas pad_right
-    // 真正的绘图区几何（与 render_single_chart 内 canvas 的 pad_left/pad_right 一致）
+    // 真正的绘图区几何（与 render_lane 内 canvas 的 pad_left/pad_right 一致）
     let draw_origin_x = sidebar_offset + padding + card_pad + canvas_pad_left; // 380
     let draw_right_margin = padding + card_pad + canvas_pad_right;             // 28
 
-    // The v_flex itself is the scroll container: it has overflow_y_scroll +
-    // track_scroll, and its children (legend + charts) take natural height so
-    // the container grows beyond the viewport and scrolling kicks in. The
-    // zoom-box overlay and hover line are positioned absolutely inside the
-    // v_flex so they stay aligned with the visible charts.
+    let time_range = visible_time_range(app);
+    let mut lanes = Vec::with_capacity(app.plot_lanes.lanes.len());
+    for (index, lane) in app.plot_lanes.lanes.iter().enumerate() {
+        lanes.push(render_lane(
+            index,
+            lane,
+            index == app.plot_lanes.selected,
+            app,
+            &series_data,
+            time_range,
+            start_time,
+            show_points,
+            cursor_time,
+            cx,
+        ));
+    }
+
+    // The v_flex is the scroll container. Lanes share its height equally until they
+    // reach their minimum height, and then it scrolls. The zoom-box overlay is
+    // positioned absolutely inside it so it stays aligned with the lanes.
     v_flex()
         .id("plot-scroll-container")
         .flex_1()
         .min_h_0()  // allow the flex child to shrink so its content can scroll
         .relative()
         .p_4()
-        .gap_4()
+        .gap_2()
         .overflow_y_scroll()
         .track_scroll(&app.plot_scroll_handle)
-        .child(render_legend(&series_data))
-        .children(app.selected_signals.iter().map(|signal_id| {
-            let series = series_data.iter().find(|s| &s.name == signal_id);
-            match series {
-                Some(s) => {
-                    let cursor_value = app.plot_cursor_values.get(signal_id).map(String::as_str);
-                    render_single_chart(s, start_time, show_points, cursor_time, cursor_value)
-                        .into_any_element()
-                }
-                None => render_no_data_chart(signal_id),
-            }
-        }))
+        .children(lanes)
         // Zoom Box Overlay Layer
         .when(is_dragging, |this| {
             if let (Some(start), Some(current)) = (drag_start, drag_current) {
@@ -315,7 +405,7 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
                     
                     if cur_min < cur_max {
                         let window_width = window.bounds().size.width;
-                        // Match the actual chart drawing area used by render_single_chart
+                        // Match the actual chart drawing area used by render_lane
                         // (sidebar + v_flex p_4 + card p_2 + canvas pad_left = 380).
                         let plot_width = f32::from(window_width - draw_origin_x - draw_right_margin);
 
@@ -543,343 +633,344 @@ fn format_time_relative_or_absolute(time: f64, _start_time: Option<chrono::Naive
     dt.naive_utc().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
 }
 
-/// Render a placeholder card matching `render_single_chart`'s visual style
-/// for a selected signal that has no data points in the current log.
-fn render_no_data_chart(signal_id: &str) -> AnyElement {
-    let display_name = signal_id.split(':').last().unwrap_or(signal_id);
-    div()
-        .flex()
-        .flex_col()
-        .h(px(240.0))
-        .flex_shrink_0()
-        .bg(rgb(0x18181b))
-        .border_1()
-        .border_color(rgb(0x27272a))
-        .rounded_lg()
-        .p_2()
-        .items_center()
-        .justify_center()
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_2()
-                .child(div().text_xl().text_color(rgb(0x71717a)).child("⊘"))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0xa1a1aa))
-                        .child(format!("No data for '{}'", display_name))
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x52525b))
-                        .child("Check that channel IDs match (DBC vs log), or check the time range")
-                )
-        )
-        .into_any_element()
-}
-
-/// Render a single chart for one signal — gpui canvas self-drawn, no grid.
-fn render_single_chart(
-    series: &Series,
+/// Render one lane: a header naming its signals, then their shared plot.
+#[allow(clippy::too_many_arguments)]
+fn render_lane(
+    index: usize,
+    lane: &PlotLane,
+    is_selected: bool,
+    app: &CanViewerApp,
+    series_data: &Arc<[Series]>,
+    time_range: Option<(f64, f64)>,
     start_time: Option<chrono::NaiveDateTime>,
     show_points: bool,
     cursor_time: Option<f64>,
-    cursor_value: Option<&str>,
-) -> impl IntoElement {
-    let points = Arc::new(series.points.clone());
-    let color = series.color;
-    let start_time_for_paint = start_time;
-    let label = super::plot_sidebar::signal_label(
-        series.name.split(':').last().unwrap_or(&series.name),
-        series.unit.as_deref().unwrap_or(""),
-    );
-    let title = match cursor_value {
-        Some(value) => format!("{} {}", label, value),
-        None => label,
+    cx: &mut Context<CanViewerApp>,
+) -> AnyElement {
+    let mut header_items = Vec::with_capacity(lane.signals.len());
+    // (index into series_data, line colour) for each signal with points to draw
+    let mut traces: Vec<(usize, Hsla)> = Vec::with_capacity(lane.signals.len());
+
+    for (position, signal_id) in lane.signals.iter().enumerate() {
+        let color = lane_color(position);
+        let name = signal_id.split(':').last().unwrap_or(signal_id);
+        let series_index = series_data.iter().position(|s| &s.name == signal_id);
+
+        let label = match series_index.map(|i| &series_data[i]) {
+            Some(series) => super::plot_sidebar::signal_label(name, series.unit.as_deref().unwrap_or("")),
+            None => format!("{} (no data)", name),
+        };
+        let title = match app.plot_cursor_values.get(signal_id) {
+            Some(value) => format!("{} {}", label, value),
+            None => label,
+        };
+        let id_to_remove = signal_id.clone();
+        header_items.push(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(div().size(px(8.0)).rounded(px(2.0)).bg(color))
+                .child(div().text_xs().text_color(color).child(title))
+                .child(
+                    div()
+                        .px_1()
+                        .text_xs()
+                        .text_color(rgb(0x71717a))
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(rgb(0xf38ba8)))
+                        .child("✕")
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                                cx.stop_propagation();
+                                remove_signal_from_lane(this, index, &id_to_remove);
+                                cx.notify();
+                            }),
+                        ),
+                ),
+        );
+
+        if let Some(i) = series_index.filter(|i| !series_data[*i].points.is_empty()) {
+            traces.push((i, color));
+        }
+    }
+
+    let body = match time_range.filter(|_| !traces.is_empty()) {
+        Some(range) => render_lane_plot(
+            series_data.clone(),
+            traces,
+            range,
+            start_time,
+            show_points,
+            cursor_time,
+        )
+        .into_any_element(),
+        None => div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_xs()
+            .text_color(rgb(0x52525b))
+            .child(if lane.signals.is_empty() {
+                "Drag a signal here, or double-click it to add it to the selected lane"
+            } else {
+                "No data: check that channel IDs match (DBC vs log), or check the time range"
+            })
+            .into_any_element(),
     };
 
     div()
         .flex()
         .flex_col()
-        .h(px(240.0))
-        .flex_shrink_0()
+        .flex_1()
+        .min_h(px(100.0))
         .bg(rgb(0x18181b))
         .border_1()
-        .border_color(rgb(0x27272a))
+        .border_color(if is_selected { rgb(0x3b82f6) } else { rgb(0x27272a) })
         .rounded_lg()
         .p_2()
-        .child(div().text_xs().text_color(color).child(title))
+        .drag_over::<DraggedSignal>(|style, _, _, _| {
+            style.bg(rgb(0x1e293b)).border_color(rgb(0x60a5fa))
+        })
+        .on_drop(cx.listener(move |this: &mut CanViewerApp, signal: &DraggedSignal, _, cx| {
+            add_signal_to_lane(this, index, &signal.id);
+            cx.notify();
+        }))
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                this.plot_lanes.select(index);
+                cx.notify();
+            }),
+        )
         .child(
             div()
-                .flex_1()
-                .min_h_0()
-                .py_1()
-                .child({
-                    let prepaint_points = points.clone();
-                    gpui::canvas(
-                        move |bounds, _window, _cx| {
-                            // prepaint: 预计算坐标变换参数；空数据返回 None 跳过 paint
-                            if prepaint_points.is_empty() {
-                                return None;
-                            }
-                            let min_t = prepaint_points.first().unwrap().time;
-                            let max_t = prepaint_points.last().unwrap().time;
-                            let (mut min_v, mut max_v) = prepaint_points.iter().fold(
-                                (f64::INFINITY, f64::NEG_INFINITY),
-                                |(mn, mx), p| (mn.min(p.value), mx.max(p.value)),
-                            );
-                            // 当所有值相等（含全 0）时，扩展 Y 范围让 0 落在 X 轴底部，
-                            // 而不是把折线压在 Y 轴顶部。
-                            if max_v == min_v {
-                                min_v = min_v.min(0.0);
-                                max_v = max_v.max(0.0);
-                                if max_v == min_v {
-                                    // 仍相等（仅当 min_v=max_v=0）：给一个 1 的虚拟高度
-                                    max_v = min_v + 1.0;
-                                }
-                            }
-                            let v_range = (max_v - min_v).max(1e-9);
-                            let t_range = (max_t - min_t).max(1e-9);
-                            Some(ChartLayout {
-                                bounds,
-                                min_t,
-                                min_v,
-                                max_v,
-                                t_range,
-                                v_range,
-                            })
-                        },
-                        move |_bounds, layout, window, cx| {
-                            let layout = match layout {
-                                Some(l) => l,
-                                None => return,
-                            };
-                            let bounds = layout.bounds;
-                            let pad_left = px(36.0);
-                            let pad_right = px(4.0);
-                            let pad_top = px(4.0);
-                            let pad_bottom = px(14.0);
-                            let chart_w = bounds.size.width - pad_left - pad_right;
-                            let chart_h = bounds.size.height - pad_top - pad_bottom;
-
-                            // 坐标系原点（左下角）和右上角
-                            let origin_x = bounds.origin.x + pad_left;
-                            let origin_y = bounds.origin.y + pad_top; // 顶部 Y
-                            let x_axis_y = bounds.origin.y + pad_top + chart_h; // 底部 X 轴线 Y
-
-                            let stroke_color = cx.theme().border;
-
-                            // === 1. Y 轴线 ===
-                            {
-                                let mut b = PathBuilder::stroke(px(1.));
-                                b.move_to(point(origin_x, origin_y));
-                                b.line_to(point(origin_x, x_axis_y));
-                                if let Ok(path) = b.build() {
-                                    window.paint_path(path, stroke_color);
-                                }
-                            }
-
-                            // === 2. X 轴线 ===
-                            {
-                                let mut b = PathBuilder::stroke(px(1.));
-                                b.move_to(point(origin_x, x_axis_y));
-                                b.line_to(point(bounds.origin.x + pad_left + chart_w, x_axis_y));
-                                if let Ok(path) = b.build() {
-                                    window.paint_path(path, stroke_color);
-                                }
-                            }
-
-                            // === 3. Y 轴刻度 + 标签（动态数量，按 chart_h 估算）===
-                            let n_y_ticks = calc_y_tick_count(chart_h.as_f32());
-                            let mut y_labels: Vec<gpui_component::plot::label::Text> = Vec::with_capacity(n_y_ticks);
-                            for i in 0..n_y_ticks {
-                                // i=0 → max_v (top), i=n_y_ticks-1 → min_v (bottom)
-                                let ratio = if n_y_ticks == 1 { 0.0 } else { i as f32 / (n_y_ticks - 1) as f32 };
-                                let v = layout.max_v - (layout.max_v - layout.min_v) * ratio as f64;
-                                let y_px = origin_y + chart_h * ratio;
-                                // 短刻度线（向左 4px）
-                                {
-                                    let mut b = PathBuilder::stroke(px(1.));
-                                    b.move_to(point(origin_x - px(4.), y_px));
-                                    b.line_to(point(origin_x, y_px));
-                                    if let Ok(path) = b.build() {
-                                        window.paint_path(path, stroke_color);
-                                    }
-                                }
-                                // 标签文本（在 origin_x - 6px 处右对齐，垂直居中于 y_px）
-                                let label = format!("{:.1}", v);
-                                // PlotLabel::paint 内部会再加 bounds.origin，所以这里必须
-                                // 存画布相对坐标（已减去 bounds.origin），避免双重偏移。
-                                y_labels.push(
-                                    gpui_component::plot::label::Text::new(
-                                        label,
-                                        point(
-                                            origin_x - px(6.) - bounds.origin.x,
-                                            y_px - px(5.) - bounds.origin.y,
-                                        ),
-                                        cx.theme().muted_foreground,
-                                    )
-                                    .font_size(px(10.))
-                                    .align(gpui::TextAlign::Right),
-                                );
-                            }
-                            let y_plot_label = gpui_component::plot::PlotLabel::new(y_labels);
-                            y_plot_label.paint(&bounds, window, cx);
-
-                            // === 4. X 轴刻度 + 标签（动态数量）===
-                            let n_ticks = calc_x_tick_count(chart_w.as_f32());
-                            let mut x_labels: Vec<gpui_component::plot::label::Text> = Vec::with_capacity(n_ticks);
-                            for i in 0..n_ticks {
-                                let ratio = if n_ticks == 1 { 0.0 } else { i as f32 / (n_ticks - 1) as f32 };
-                                let x_px = origin_x + chart_w * ratio;
-                                // 短刻度线（向下 4px）
-                                {
-                                    let mut b = PathBuilder::stroke(px(1.));
-                                    b.move_to(point(x_px, x_axis_y));
-                                    b.line_to(point(x_px, x_axis_y + px(4.)));
-                                    if let Ok(path) = b.build() {
-                                        window.paint_path(path, stroke_color);
-                                    }
-                                }
-                                // 时间标签：X 轴上省略年月日，用 HH:MM:SS.ffffff（与 log view 同精度）；
-                                // 完整 YYYY-MM-DD HH:MM:SS.ffffff 在悬停 tooltip 里显示。
-                                let t = layout.min_t + layout.t_range * ratio as f64;
-                                let full_label = format_time_relative_or_absolute(t, start_time_for_paint);
-                                let label_text = if full_label.starts_with("Time: ") {
-                                    full_label
-                                } else {
-                                    // 截取 HH:MM:SS.ffffff（跳过 "YYYY-MM-DD " 的 11 字符）
-                                    full_label.get(11..).unwrap_or(&full_label).to_string()
-                                };
-                                x_labels.push(
-                                    gpui_component::plot::label::Text::new(
-                                        label_text,
-                                        point(
-                                            x_px - bounds.origin.x,
-                                            x_axis_y + px(4.) - bounds.origin.y,
-                                        ),
-                                        cx.theme().muted_foreground,
-                                    )
-                                    .font_size(px(10.))
-                                    .align(gpui::TextAlign::Center),
-                                );
-                            }
-                            let x_plot_label = gpui_component::plot::PlotLabel::new(x_labels);
-                            x_plot_label.paint(&bounds, window, cx);
-
-                            // === 5. 折线 ===
-                            let mut builder = PathBuilder::stroke(px(1.0));
-                            let mut started = false;
-                            for p in points.iter() {
-                                let x = origin_x
-                                    + px(
-                                        ((p.time - layout.min_t) / layout.t_range
-                                            * chart_w.as_f32() as f64) as f32,
-                                    );
-                                let y = origin_y
-                                    + px(
-                                        ((layout.max_v - p.value) / layout.v_range
-                                            * chart_h.as_f32() as f64) as f32,
-                                    );
-                                if !started {
-                                    builder.move_to(point(x, y));
-                                    started = true;
-                                } else {
-                                    builder.line_to(point(x, y));
-                                }
-                            }
-                            if started {
-                                if let Ok(path) = builder.build() {
-                                    window.paint_path(path, color);
-                                }
-                            }
-
-                            // === 6. data points（可选，show_points 为 true）===
-                            if show_points {
-                                for p in points.iter() {
-                                    let x = origin_x
-                                        + px(
-                                            ((p.time - layout.min_t) / layout.t_range
-                                                * chart_w.as_f32() as f64) as f32,
-                                        );
-                                    let y = origin_y
-                                        + px(
-                                            ((layout.max_v - p.value) / layout.v_range
-                                                * chart_h.as_f32() as f64) as f32,
-                                        );
-                                    // 3px 实心方块（缩小后不堆叠）
-                                    let dot_bounds = gpui::Bounds::new(
-                                        point(x - px(1.5), y - px(1.5)),
-                                        size(px(3.), px(3.)),
-                                    );
-                                    window.paint_quad(gpui::fill(dot_bounds, color));
-                                }
-                            }
-
-                            // === 7. 悬停竖线 + 最近点数值标签 ===
-                            // 鼠标在 plot 区时，每张卡片都画一条贯穿 top→x_axis_y 的竖线，
-                            // 并在最近的数据点处显示一个带边框的小数值气泡。
-                            if let Some(ht) = cursor_time {
-                                // 只在 cursor_time 落在 [min_t, max_t] 范围内才画
-                                let max_t = layout.min_t + layout.t_range;
-                                if ht >= layout.min_t && ht <= max_t {
-                                    let line_x = origin_x
-                                        + px(
-                                            ((ht - layout.min_t) / layout.t_range
-                                                * chart_w.as_f32() as f64) as f32,
-                                        );
-                                    // 仅当竖线 x 在 canvas 水平范围内时画
-                                    if line_x >= origin_x && line_x <= origin_x + chart_w {
-                                        // 竖线
-                                        let mut b = PathBuilder::stroke(px(1.));
-                                        b.move_to(point(line_x, origin_y));
-                                        b.line_to(point(line_x, x_axis_y));
-                                        if let Ok(path) = b.build() {
-                                            window.paint_path(
-                                                path,
-                                                gpui::rgba(0xd4d4d8cc),
-                                            );
-                                        }
-                                        // Latest sample at or before the cursor: the same rule
-                                        // as the signal list, so the two always agree.
-                                        let idx = points.partition_point(|p| p.time <= ht);
-                                        let Some(marker) =
-                                            idx.checked_sub(1).and_then(|i| points.get(i))
-                                        else {
-                                            return;
-                                        };
-                                        // 高亮该点（4px 圆点，比 show_points 大）
-                                        let dot_y = origin_y
-                                            + px(
-                                                ((layout.max_v - marker.value)
-                                                    / layout.v_range
-                                                    * chart_h.as_f32() as f64)
-                                                    as f32,
-                                            );
-                                        let dot_x = origin_x
-                                            + px(
-                                                ((marker.time - layout.min_t) / layout.t_range
-                                                    * chart_w.as_f32() as f64) as f32,
-                                            );
-                                        window.paint_quad(gpui::fill(
-                                            gpui::Bounds::new(
-                                                point(dot_x - px(2.), dot_y - px(2.)),
-                                                size(px(4.), px(4.)),
-                                            ),
-                                            color,
-                                        ));
-                                    }
-                                }
-                            }
-                        },
-                    )
-                    .size_full()
-                }),
+                .flex()
+                .flex_wrap()
+                .gap_x_3()
+                .min_h(px(16.0))
+                // Clicking the header selects the lane without moving the cursor.
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                        cx.stop_propagation();
+                        this.plot_lanes.select(index);
+                        cx.notify();
+                    }),
+                )
+                .children(header_items),
         )
+        .child(div().flex_1().min_h_0().py_1().child(body))
+        .into_any_element()
+}
+
+/// Draw a lane's signals on one set of axes — gpui canvas self-drawn, no grid.
+fn render_lane_plot(
+    series_data: Arc<[Series]>,
+    traces: Vec<(usize, Hsla)>,
+    time_range: (f64, f64),
+    start_time: Option<chrono::NaiveDateTime>,
+    show_points: bool,
+    cursor_time: Option<f64>,
+) -> impl IntoElement {
+    let prepaint_series = series_data.clone();
+    let prepaint_traces = traces.clone();
+
+    gpui::canvas(
+        move |bounds, _window, _cx| {
+            // All signals in a lane share one Y range; every lane shares one time range.
+            let values = prepaint_traces
+                .iter()
+                .flat_map(|(i, _)| prepaint_series[*i].points.iter().map(|p| p.value));
+            let (min_v, max_v) = auto_value_range(values)?;
+            let (min_t, max_t) = time_range;
+            Some(ChartLayout {
+                bounds,
+                min_t,
+                min_v,
+                max_v,
+                t_range: (max_t - min_t).max(1e-9),
+                v_range: (max_v - min_v).max(1e-9),
+            })
+        },
+        move |_bounds, layout, window, cx| {
+            let layout = match layout {
+                Some(l) => l,
+                None => return,
+            };
+            let bounds = layout.bounds;
+            let pad_left = px(36.0);
+            let pad_right = px(4.0);
+            let pad_top = px(4.0);
+            let pad_bottom = px(14.0);
+            let chart_w = bounds.size.width - pad_left - pad_right;
+            let chart_h = bounds.size.height - pad_top - pad_bottom;
+
+            let origin_x = bounds.origin.x + pad_left;
+            let origin_y = bounds.origin.y + pad_top;
+            let x_axis_y = bounds.origin.y + pad_top + chart_h;
+
+            let to_x = |time: f64| {
+                origin_x + px(((time - layout.min_t) / layout.t_range * chart_w.as_f32() as f64) as f32)
+            };
+            let to_y = |value: f64| {
+                origin_y + px(((layout.max_v - value) / layout.v_range * chart_h.as_f32() as f64) as f32)
+            };
+
+            let stroke_color = cx.theme().border;
+
+            // === Axis lines ===
+            {
+                let mut b = PathBuilder::stroke(px(1.));
+                b.move_to(point(origin_x, origin_y));
+                b.line_to(point(origin_x, x_axis_y));
+                if let Ok(path) = b.build() {
+                    window.paint_path(path, stroke_color);
+                }
+            }
+            {
+                let mut b = PathBuilder::stroke(px(1.));
+                b.move_to(point(origin_x, x_axis_y));
+                b.line_to(point(bounds.origin.x + pad_left + chart_w, x_axis_y));
+                if let Ok(path) = b.build() {
+                    window.paint_path(path, stroke_color);
+                }
+            }
+
+            // === Y ticks and labels ===
+            let n_y_ticks = calc_y_tick_count(chart_h.as_f32());
+            let mut y_labels: Vec<gpui_component::plot::label::Text> = Vec::with_capacity(n_y_ticks);
+            for i in 0..n_y_ticks {
+                // i=0 is max_v at the top; the last tick is min_v at the bottom
+                let ratio = if n_y_ticks == 1 { 0.0 } else { i as f32 / (n_y_ticks - 1) as f32 };
+                let v = layout.max_v - (layout.max_v - layout.min_v) * ratio as f64;
+                let y_px = origin_y + chart_h * ratio;
+                {
+                    let mut b = PathBuilder::stroke(px(1.));
+                    b.move_to(point(origin_x - px(4.), y_px));
+                    b.line_to(point(origin_x, y_px));
+                    if let Ok(path) = b.build() {
+                        window.paint_path(path, stroke_color);
+                    }
+                }
+                // PlotLabel::paint adds bounds.origin itself, so these coordinates
+                // must be relative to the canvas.
+                y_labels.push(
+                    gpui_component::plot::label::Text::new(
+                        format!("{:.1}", v),
+                        point(
+                            origin_x - px(6.) - bounds.origin.x,
+                            y_px - px(5.) - bounds.origin.y,
+                        ),
+                        cx.theme().muted_foreground,
+                    )
+                    .font_size(px(10.))
+                    .align(gpui::TextAlign::Right),
+                );
+            }
+            gpui_component::plot::PlotLabel::new(y_labels).paint(&bounds, window, cx);
+
+            // === X ticks and labels ===
+            let n_ticks = calc_x_tick_count(chart_w.as_f32());
+            let mut x_labels: Vec<gpui_component::plot::label::Text> = Vec::with_capacity(n_ticks);
+            for i in 0..n_ticks {
+                let ratio = if n_ticks == 1 { 0.0 } else { i as f32 / (n_ticks - 1) as f32 };
+                let x_px = origin_x + chart_w * ratio;
+                {
+                    let mut b = PathBuilder::stroke(px(1.));
+                    b.move_to(point(x_px, x_axis_y));
+                    b.line_to(point(x_px, x_axis_y + px(4.)));
+                    if let Ok(path) = b.build() {
+                        window.paint_path(path, stroke_color);
+                    }
+                }
+                // Drop the date (the first 11 characters) from axis labels.
+                let t = layout.min_t + layout.t_range * ratio as f64;
+                let full_label = format_time_relative_or_absolute(t, start_time);
+                let label_text = if full_label.starts_with("Time: ") {
+                    full_label
+                } else {
+                    full_label.get(11..).unwrap_or(&full_label).to_string()
+                };
+                x_labels.push(
+                    gpui_component::plot::label::Text::new(
+                        label_text,
+                        point(x_px - bounds.origin.x, x_axis_y + px(4.) - bounds.origin.y),
+                        cx.theme().muted_foreground,
+                    )
+                    .font_size(px(10.))
+                    .align(gpui::TextAlign::Center),
+                );
+            }
+            gpui_component::plot::PlotLabel::new(x_labels).paint(&bounds, window, cx);
+
+            // === Signal lines and optional points ===
+            for (series_index, color) in traces.iter() {
+                let points = &series_data[*series_index].points;
+
+                let mut builder = PathBuilder::stroke(px(1.0));
+                let mut started = false;
+                for p in points.iter() {
+                    let position = point(to_x(p.time), to_y(p.value));
+                    if started {
+                        builder.line_to(position);
+                    } else {
+                        builder.move_to(position);
+                        started = true;
+                    }
+                }
+                if started {
+                    if let Ok(path) = builder.build() {
+                        window.paint_path(path, *color);
+                    }
+                }
+
+                if show_points {
+                    for p in points.iter() {
+                        let dot_bounds = gpui::Bounds::new(
+                            point(to_x(p.time) - px(1.5), to_y(p.value) - px(1.5)),
+                            size(px(3.), px(3.)),
+                        );
+                        window.paint_quad(gpui::fill(dot_bounds, *color));
+                    }
+                }
+            }
+
+            // === Cursor line, and a marker on each signal ===
+            let Some(cursor) = cursor_time else {
+                return;
+            };
+            if cursor < layout.min_t || cursor > layout.min_t + layout.t_range {
+                return;
+            }
+            let line_x = to_x(cursor);
+            let mut b = PathBuilder::stroke(px(1.));
+            b.move_to(point(line_x, origin_y));
+            b.line_to(point(line_x, x_axis_y));
+            if let Ok(path) = b.build() {
+                window.paint_path(path, gpui::rgba(0xd4d4d8cc));
+            }
+
+            for (series_index, color) in traces.iter() {
+                let points = &series_data[*series_index].points;
+                // Latest sample at or before the cursor: the same rule as the
+                // signal list, so the two always agree.
+                let idx = points.partition_point(|p| p.time <= cursor);
+                if let Some(marker) = idx.checked_sub(1).and_then(|i| points.get(i)) {
+                    window.paint_quad(gpui::fill(
+                        gpui::Bounds::new(
+                            point(to_x(marker.time) - px(2.), to_y(marker.value) - px(2.)),
+                            size(px(4.), px(4.)),
+                        ),
+                        *color,
+                    ));
+                }
+            }
+        },
+    )
+    .size_full()
 }
 
 /// Canvas 自绘坐标变换参数
@@ -892,45 +983,6 @@ struct ChartLayout {
     v_range: f64,
 }
 
-
-/// Render legend showing all series
-fn render_legend(series_data: &[Series]) -> impl IntoElement {
-    // Render an empty (zero-height) div when there are no series, so the
-    // legend's bordered container doesn't show as an empty box above the
-    // first chart when every selected signal has no data in the log.
-    if series_data.is_empty() {
-        return div().into_any_element();
-    }
-    div()
-        .flex()
-        .flex_wrap()
-        .gap_4()
-        .p_3()
-        .bg(rgb(0x18181b))
-        .border_1()
-        .border_color(rgb(0x27272a))
-        .rounded_lg()
-        .children(series_data.iter().map(|series| {
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .w(px(16.0))
-                        .h(px(3.0))
-                        .rounded_sm()
-                        .bg(series.color)
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0xa1a1aa))
-                        .child(series.name.split(':').last().unwrap_or(&series.name).to_string())
-                )
-        }))
-        .into_any_element()
-}
 
 /// Filter existing plot data by zoom range
 /// This is used when messages is empty but plot_data has already been extracted
@@ -988,7 +1040,6 @@ pub fn extract_series_data(app: &CanViewerApp) -> Arc<[Series]> {
     }
 
     // Limit processing to avoid stack overflow, but high enough for complete logs
-    const MAX_SIGNALS: usize = 20;
     const MAX_MESSAGES: usize = 10_000_000;
     const MAX_RAW_POINTS: usize = 1_000_000; // Max points: 1M (needed for 10min @ 1ms = 600K points)
     const SAMPLING_INTERVAL_MS: f64 = 1.0; // 1ms sampling interval
@@ -1345,15 +1396,8 @@ fn set_plot_cursor(app: &mut CanViewerApp, mouse_x: Pixels, draw_left: Pixels, d
         return;
     }
 
-    let (min_t, max_t) = if let (Some(s), Some(e)) = (app.plot_zoom_start, app.plot_zoom_end) {
-        (s, e)
-    } else {
-        let times = app.plot_data.iter().flat_map(|series| series.points.iter()).map(|p| p.time);
-        let (min_t, max_t) = times.fold((f64::MAX, f64::MIN), |(lo, hi), t| (lo.min(t), hi.max(t)));
-        if min_t > max_t {
-            return; // Nothing plotted yet
-        }
-        (min_t, max_t)
+    let Some((min_t, max_t)) = visible_time_range(app) else {
+        return; // Nothing plotted yet
     };
 
     let rel_x = ((mouse_x - draw_left) / (draw_right - draw_left)).clamp(0.0, 1.0);
