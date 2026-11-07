@@ -185,6 +185,17 @@ pub fn auto_value_range(values: impl Iterator<Item = f64>) -> Option<(f64, f64)>
     Some((min, max))
 }
 
+/// Move a time window by `shift` seconds, keeping its width and staying within
+/// `min..max`. A window at least as wide as that range doesn't move.
+pub fn pan_time_range(start: f64, end: f64, shift: f64, min: f64, max: f64) -> (f64, f64) {
+    let span = end - start;
+    if span >= max - min {
+        return (start, end);
+    }
+    let new_start = (start + shift).clamp(min, max - span);
+    (new_start, new_start + span)
+}
+
 /// Read typed Y limits, or explain why they can't be used.
 pub fn parse_y_range(min: &str, max: &str) -> Result<(f64, f64), &'static str> {
     let parse = |text: &str| text.trim().parse::<f64>().ok().filter(|v| v.is_finite());
@@ -446,6 +457,23 @@ mod tests {
         l.move_selected_up();
         assert_eq!(l.lanes[0].y_range, Some((0.0, 10.0)));
         assert_eq!(l.lanes[1].y_range, None);
+    }
+
+    #[test]
+    fn panning_keeps_the_zoom_level() {
+        assert_eq!(pan_time_range(20.0, 30.0, 5.0, 0.0, 100.0), (25.0, 35.0));
+        assert_eq!(pan_time_range(20.0, 30.0, -5.0, 0.0, 100.0), (15.0, 25.0));
+    }
+
+    #[test]
+    fn panning_stops_at_the_ends_of_the_data() {
+        assert_eq!(pan_time_range(20.0, 30.0, -50.0, 0.0, 100.0), (0.0, 10.0));
+        assert_eq!(pan_time_range(80.0, 90.0, 50.0, 0.0, 100.0), (90.0, 100.0));
+    }
+
+    #[test]
+    fn a_window_covering_all_the_data_does_not_pan() {
+        assert_eq!(pan_time_range(0.0, 100.0, 10.0, 0.0, 100.0), (0.0, 100.0));
     }
 
     #[test]

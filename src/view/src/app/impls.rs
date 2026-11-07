@@ -133,6 +133,7 @@ impl CanViewerApp {
             plot_full_time_min: None,
             plot_full_time_max: None,
             is_dragging_zoom: false,
+            plot_pan_start: None,
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
             show_plot_points: true,
@@ -707,6 +708,7 @@ impl CanViewerApp {
 
         // Reset only transient plot interaction state (not zoom state or width)
         self.is_dragging_zoom = false;
+        self.plot_pan_start = None;
         self.zoom_drag_start_x = None;
         self.zoom_drag_current_x = None;
         self.hover_point = None;
@@ -902,6 +904,7 @@ impl CanViewerApp {
             plot_full_time_min: None,
             plot_full_time_max: None,
             is_dragging_zoom: false,
+            plot_pan_start: None,
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
             show_plot_points: true,

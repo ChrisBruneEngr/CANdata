@@ -143,9 +143,11 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 
 ### Zoom
 
-- **Mouse wheel** — zoom in/out centered on the cursor. Min range is bounded by the smallest gap between adjacent points across all series.
+- **Mouse wheel** — zoom in/out centered on the mouse when it's over a plot. Min range is bounded by the smallest gap between adjacent points across all series.
 - **Drag to zoom** — click-drag horizontally on a chart to select a region. Selections > 10 px commit the zoom; smaller selections are ignored.
 - **Double-click** — resets zoom.
+- **Right-drag** — while zoomed in, pans through time at the same zoom level. It stops at the ends of the data.
+- **Ctrl/⌘ + wheel** — scrolls the lanes when they don't all fit. The wheel also scrolls them when the mouse is outside the plot area.
 
 ### Cursor
 
@@ -331,6 +333,8 @@ can-viewer has no global hotkey registry. Shortcuts are per-view.
 
 - **Double-click** on a chart — reset zoom.
 - **Mouse wheel** — zoom in/out.
+- **Right-drag** — pan while zoomed in.
+- **Ctrl/⌘ + wheel** — scroll the lanes.
 - No keyboard shortcuts.
 
 ### Window controls (Win/Linux)

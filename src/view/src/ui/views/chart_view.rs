@@ -1,7 +1,7 @@
 use crate::app::CanViewerApp;
 use gpui_component::input::{Input, InputEvent, InputState};
 use crate::models::{DataPoint, Series};
-use crate::plot_lanes::{auto_value_range, format_y_limit, parse_y_range, PlotLane};
+use crate::plot_lanes::{auto_value_range, format_y_limit, pan_time_range, parse_y_range, PlotLane};
 use super::plot_sidebar::DraggedSignal;
 use blf::LogObject;
 use gpui::prelude::*;
@@ -13,6 +13,13 @@ use gpui_component::v_flex;
 use gpui_component::scroll::ScrollableElement;
 use std::sync::Arc;
 use chrono::{Timelike, Datelike};
+
+/// Left edge of a lane's plot area in the window: sidebar 320 + scroll area padding
+/// 16 + lane padding 8 + canvas left padding 36.
+const DRAW_ORIGIN_X: Pixels = px(380.0);
+/// Gap from the plot area to the window's right edge: scroll area padding 16 + lane
+/// padding 8 + canvas right padding 4.
+const DRAW_RIGHT_MARGIN: Pixels = px(28.0);
 
 /// Only this many signals are decoded and plotted.
 const MAX_SIGNALS: usize = 20;
@@ -85,7 +92,7 @@ fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl In
             div()
                 .text_xs()
                 .text_color(rgb(0x71717a))
-                .child("Click = set cursor · drag = zoom · ⌘/Ctrl + wheel = zoom · wheel = scroll")
+                .child("Click = set cursor · drag or wheel = zoom · right-drag = pan · ⌘/Ctrl + wheel = scroll lanes")
         )
         .when_some(app.plot_cursor_time, |this, time| {
             this.child(
@@ -429,13 +436,8 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
     // 之前用 chart_start_x = 336 当绘图原点，导致 hover 竖线、zoom 拖拽框、
     // 缩放中心都向左偏 ~44px。
     let sidebar_offset = px(320.0);
-    let padding = px(16.0);          // v_flex .p_4()
-    let card_pad = px(8.0);          // card .p_2()
-    let canvas_pad_left = px(36.0);  // canvas pad_left
-    let canvas_pad_right = px(4.0);  // canvas pad_right
-    // 真正的绘图区几何（与 render_lane 内 canvas 的 pad_left/pad_right 一致）
-    let draw_origin_x = sidebar_offset + padding + card_pad + canvas_pad_left; // 380
-    let draw_right_margin = padding + card_pad + canvas_pad_right;             // 28
+    let draw_origin_x = DRAW_ORIGIN_X;
+    let draw_right_margin = DRAW_RIGHT_MARGIN;
 
     let time_range = visible_time_range(app);
     let mut lanes = Vec::with_capacity(app.plot_lanes.lanes.len());
@@ -466,6 +468,7 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
         .gap_2()
         .overflow_y_scroll()
         .track_scroll(&app.plot_scroll_handle)
+        .when(app.plot_pan_start.is_some(), |this| this.cursor_grabbing())
         .children(lanes)
         // Zoom Box Overlay Layer
         .when(is_dragging, |this| {
@@ -512,10 +515,31 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
              this.zoom_drag_current_x = Some(event.position.x);
              cx.notify();
         }))
-        .on_mouse_move(cx.listener(move |this: &mut CanViewerApp, event: &MouseMoveEvent, _, cx| {
+        // Right-drag pans, which only means something while zoomed in.
+        .on_mouse_down(MouseButton::Right, cx.listener(move |this: &mut CanViewerApp, event: &MouseDownEvent, _, cx| {
+            if let (Some(start), Some(end)) = (this.plot_zoom_start, this.plot_zoom_end) {
+                this.plot_pan_start = Some((event.position.x, start, end));
+                cx.notify();
+            }
+        }))
+        .on_mouse_up(MouseButton::Right, cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+            this.plot_pan_start = None;
+            cx.notify();
+        }))
+        .on_mouse_move(cx.listener(move |this: &mut CanViewerApp, event: &MouseMoveEvent, window, cx| {
             // Handle Zoom Dragging
             if this.is_dragging_zoom {
                 this.zoom_drag_current_x = Some(event.position.x);
+                cx.notify();
+            }
+
+            if this.plot_pan_start.is_some() {
+                // The button may have been released outside the plot.
+                if event.pressed_button == Some(MouseButton::Right) {
+                    pan_plot(this, event.position.x, window);
+                } else {
+                    this.plot_pan_start = None;
+                }
                 cx.notify();
             }
         }))
@@ -582,186 +606,206 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
             this.zoom_drag_current_x = None;
             cx.notify();
         }))
-        // Mouse wheel: scroll canvas by default; zoom only when Ctrl/Cmd is held.
-        // 同一个 div 上同时挂了 `.overflow_y_scroll()` 和这个 `.on_scroll_wheel` 监听器，
-        // gpui 内部把内置滚动处理器放在用户监听器之后注册，Bubble 阶段反向遍历会让
-        // 内置滚动**先**执行（已经把 scroll_offset.y += delta 应用掉了），用户监听器
-        // 之后才跑。所以这里 `stop_propagation` 没法回退本 div 的滚动 —— 我们改成：
-        // 缩放时显式把 ScrollHandle 的 offset 减回去，撤销刚才那一下滚动。
-        .on_scroll_wheel(cx.listener(move |this: &mut CanViewerApp, event: &ScrollWheelEvent, window, cx| {
-            // 未按修饰键 → 走默认滚动，不缩放
-            if !event.modifiers.secondary() {
-                return;
-            }
-
-            if this.plot_data.is_empty() {
-                return;
-            }
-
-            let window_width = window.bounds().size.width;
-            let mouse_x = event.position.x;
-            if mouse_x < draw_origin_x || mouse_x > (window_width - draw_right_margin) {
-                return;
-            }
-
-            // 撤销本事件刚刚被内置滚动处理器施加的滚动，让画布在缩放时保持不动。
-            let delta = event.delta.pixel_delta(window.line_height());
-            if !delta.y.is_zero() {
-                let cur = this.plot_scroll_handle.offset();
-                this.plot_scroll_handle.set_offset(gpui::point(
-                    cur.x - delta.x,
-                    cur.y - delta.y,
-                ));
-            }
-
-            // plot_data is filtered by zoom range, so its min/max is the zoomed
-            // range, not the full data range. Prefer the stored full-time bounds.
-            let (abs_min_t, abs_max_t) = match (this.plot_full_time_min, this.plot_full_time_max) {
-                (Some(min_t), Some(max_t)) if min_t < max_t => (min_t, max_t),
-                _ => {
-                    let mut min_t = f64::MAX;
-                    let mut max_t = f64::MIN;
-                    for series in this.plot_data.iter() {
-                        for p in series.points.iter() {
-                            if p.time < min_t { min_t = p.time; }
-                            if p.time > max_t { max_t = p.time; }
-                        }
-                    }
-                    if min_t == f64::MAX { return; }
-                    (min_t, max_t)
-                }
-            };
-
-            let (current_min, current_max) = if let (Some(s), Some(e)) = (this.plot_zoom_start, this.plot_zoom_end) {
-                (s, e)
-            } else {
-                (abs_min_t, abs_max_t)
-            };
-
-            let current_range = current_max - current_min;
-            if current_range <= 0.0 {
-                return;
-            }
-
-            let scroll_delta = match event.delta {
-                gpui::ScrollDelta::Lines(point) => point.y,
-                gpui::ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
-            };
-
-            // Mac 触控板会产生大量微小滚动事件，过低的阈值会导致轻微触碰就触发缩放。
-            if scroll_delta.abs() < 0.5 {
-                return;
-            }
-
-            // Try reversed direction:
-            // Scroll backward (toward user) = positive delta = zoom IN
-            // Scroll forward (away from user) = negative delta = zoom OUT
-            let zoom_in = scroll_delta > 0.0;
-
-            // 单次缩放系数：1.1 比之前的 1.2 更平缓，避免一次滚动跳太多
-            let zoom_factor = 1.1;
-
-            let (new_min, new_max) = if zoom_in {
-                // Zoom in: reduce range
-                let new_range = current_range / zoom_factor;
-
-                // Minimum range = the smallest interval that still contains at
-                // least one data point. Use a fraction of the full data range,
-                // but never smaller than the time between two adjacent points
-                // (approximated by abs_range / total_point_count).
-                let abs_range = abs_max_t - abs_min_t;
-                let total_points: usize = this.plot_full_data.iter().map(|s| s.points.len()).sum();
-                let min_range = if total_points > 1 {
-                    // smallest gap between any two adjacent points across all series
-                    let mut smallest_gap = f64::MAX;
-                    for series in this.plot_full_data.iter() {
-                        let mut prev: Option<f64> = None;
-                        for p in series.points.iter() {
-                            if let Some(prev_t) = prev {
-                                let gap = p.time - prev_t;
-                                if gap > 0.0 && gap < smallest_gap {
-                                    smallest_gap = gap;
-                                }
-                            }
-                            prev = Some(p.time);
-                        }
-                    }
-                    if smallest_gap == f64::MAX {
-                        // all points at the same time → use 1/1000 of range
-                        (abs_range / 1000.0).max(1e-6)
-                    } else {
-                        // 至少保留 2 个点可见：窗口宽度 >= 2 * 最小间隔，
-                        // 即使窗口偏移到中间也至少能覆盖 2 个相邻点。
-                        (smallest_gap * 2.0).max(1e-6)
-                    }
-                } else {
-                    // less than 2 points total → no zoom-in needed
-                    (abs_range / 1000.0).max(1e-6)
-                };
-
-                if new_range < min_range {
-                    return;
-                }
-
-                // Zoom centered on the mouse position, not the chart center,
-                // so the data under the cursor stays put.
-                let chart_width_px = window_width - draw_origin_x - draw_right_margin;
-                let mouse_t_ratio = if current_max > current_min && chart_width_px > gpui::px(0.0) {
-                    let r = (mouse_x - draw_origin_x) / chart_width_px;
-                    f32::max(0.0, f32::min(1.0, r)) as f64
-                } else {
-                    0.5
-                };
-                let focus_t = current_min + (current_max - current_min) * mouse_t_ratio;
-                let new_min = focus_t - new_range * mouse_t_ratio;
-                let new_max = focus_t + new_range * (1.0 - mouse_t_ratio);
-                (new_min, new_max)
-            } else {
-                // Zoom out: expand toward full data range, centered on mouse.
-                // 用一个更激进的步长：至少扩展 abs_range 的 10%，避免从极小 zoom
-                // 花几十次滚动才能缩回来。
-                let abs_range = abs_max_t - abs_min_t;
-                let new_range = (current_range * zoom_factor).max(current_range + 0.1 * abs_range);
-
-                let chart_width_px = window_width - draw_origin_x - draw_right_margin;
-                let mouse_t_ratio = if current_max > current_min && chart_width_px > gpui::px(0.0) {
-                    let r = (mouse_x - draw_origin_x) / chart_width_px;
-                    f32::max(0.0, f32::min(1.0, r)) as f64
-                } else {
-                    0.5
-                };
-                let focus_t = current_min + (current_max - current_min) * mouse_t_ratio;
-                let mut new_min = focus_t - new_range * mouse_t_ratio;
-                let mut new_max = focus_t + new_range * (1.0 - mouse_t_ratio);
-
-                // Clamp to data boundaries
-                new_min = new_min.max(abs_min_t);
-                new_max = new_max.min(abs_max_t);
-
-                (new_min, new_max)
-            };
-
-            let new_range = new_max - new_min;
-
-            // Check if we've reached or exceeded the full range
-            let abs_range = abs_max_t - abs_min_t;
-            // Use a more lenient threshold (0.95 instead of 0.999) to make it easier to reset
-            let is_at_or_near_full_range = new_range >= abs_range * 0.95;
-
-            if is_at_or_near_full_range {
-                // Reset to show full data
-                this.plot_zoom_start = None;
-                this.plot_zoom_end = None;
-            } else {
-                this.plot_zoom_start = Some(new_min);
-                this.plot_zoom_end = Some(new_max);
-            }
-
-            // Fast filter: slice plot_full_data without re-decoding messages
-            crate::ui::views::chart_view::apply_zoom_to_full_data(this);
-            cx.notify();
-        }))
         .into_any_element()
+}
+
+/// Zoom around the mouse with the wheel. Returns false if the event wasn't for zooming,
+/// so the wheel can scroll the lanes instead: Ctrl/Cmd is held, nothing is plotted, or
+/// the mouse is outside the plot area.
+fn zoom_with_wheel(this: &mut CanViewerApp, event: &ScrollWheelEvent, window: &Window) -> bool {
+    if event.modifiers.secondary() || this.plot_data.is_empty() {
+        return false;
+    }
+
+    let draw_origin_x = DRAW_ORIGIN_X;
+    let draw_right_margin = DRAW_RIGHT_MARGIN;
+    let window_width = window.bounds().size.width;
+    let mouse_x = event.position.x;
+    if mouse_x < draw_origin_x || mouse_x > (window_width - draw_right_margin) {
+        return false;
+    }
+
+    // plot_data is filtered by zoom range, so its min/max is the zoomed
+    // range, not the full data range. Prefer the stored full-time bounds.
+    let (abs_min_t, abs_max_t) = match (this.plot_full_time_min, this.plot_full_time_max) {
+        (Some(min_t), Some(max_t)) if min_t < max_t => (min_t, max_t),
+        _ => {
+            let mut min_t = f64::MAX;
+            let mut max_t = f64::MIN;
+            for series in this.plot_data.iter() {
+                for p in series.points.iter() {
+                    if p.time < min_t { min_t = p.time; }
+                    if p.time > max_t { max_t = p.time; }
+                }
+            }
+            if min_t == f64::MAX { return true; }
+            (min_t, max_t)
+        }
+    };
+
+    let (current_min, current_max) = if let (Some(s), Some(e)) = (this.plot_zoom_start, this.plot_zoom_end) {
+        (s, e)
+    } else {
+        (abs_min_t, abs_max_t)
+    };
+
+    let current_range = current_max - current_min;
+    if current_range <= 0.0 {
+        return true;
+    }
+
+    let scroll_delta = match event.delta {
+        gpui::ScrollDelta::Lines(point) => point.y,
+        gpui::ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
+    };
+
+    // Mac 触控板会产生大量微小滚动事件，过低的阈值会导致轻微触碰就触发缩放。
+    if scroll_delta.abs() < 0.5 {
+        return true;
+    }
+
+    // Try reversed direction:
+    // Scroll backward (toward user) = positive delta = zoom IN
+    // Scroll forward (away from user) = negative delta = zoom OUT
+    let zoom_in = scroll_delta > 0.0;
+
+    // 单次缩放系数：1.1 比之前的 1.2 更平缓，避免一次滚动跳太多
+    let zoom_factor = 1.1;
+
+    let (new_min, new_max) = if zoom_in {
+        // Zoom in: reduce range
+        let new_range = current_range / zoom_factor;
+
+        // Minimum range = the smallest interval that still contains at
+        // least one data point. Use a fraction of the full data range,
+        // but never smaller than the time between two adjacent points
+        // (approximated by abs_range / total_point_count).
+        let abs_range = abs_max_t - abs_min_t;
+        let total_points: usize = this.plot_full_data.iter().map(|s| s.points.len()).sum();
+        let min_range = if total_points > 1 {
+            // smallest gap between any two adjacent points across all series
+            let mut smallest_gap = f64::MAX;
+            for series in this.plot_full_data.iter() {
+                let mut prev: Option<f64> = None;
+                for p in series.points.iter() {
+                    if let Some(prev_t) = prev {
+                        let gap = p.time - prev_t;
+                        if gap > 0.0 && gap < smallest_gap {
+                            smallest_gap = gap;
+                        }
+                    }
+                    prev = Some(p.time);
+                }
+            }
+            if smallest_gap == f64::MAX {
+                // all points at the same time → use 1/1000 of range
+                (abs_range / 1000.0).max(1e-6)
+            } else {
+                // 至少保留 2 个点可见：窗口宽度 >= 2 * 最小间隔，
+                // 即使窗口偏移到中间也至少能覆盖 2 个相邻点。
+                (smallest_gap * 2.0).max(1e-6)
+            }
+        } else {
+            // less than 2 points total → no zoom-in needed
+            (abs_range / 1000.0).max(1e-6)
+        };
+
+        if new_range < min_range {
+            return true;
+        }
+
+        // Zoom centered on the mouse position, not the chart center,
+        // so the data under the cursor stays put.
+        let chart_width_px = window_width - draw_origin_x - draw_right_margin;
+        let mouse_t_ratio = if current_max > current_min && chart_width_px > gpui::px(0.0) {
+            let r = (mouse_x - draw_origin_x) / chart_width_px;
+            f32::max(0.0, f32::min(1.0, r)) as f64
+        } else {
+            0.5
+        };
+        let focus_t = current_min + (current_max - current_min) * mouse_t_ratio;
+        let new_min = focus_t - new_range * mouse_t_ratio;
+        let new_max = focus_t + new_range * (1.0 - mouse_t_ratio);
+        (new_min, new_max)
+    } else {
+        // Zoom out: expand toward full data range, centered on mouse.
+        // 用一个更激进的步长：至少扩展 abs_range 的 10%，避免从极小 zoom
+        // 花几十次滚动才能缩回来。
+        let abs_range = abs_max_t - abs_min_t;
+        let new_range = (current_range * zoom_factor).max(current_range + 0.1 * abs_range);
+
+        let chart_width_px = window_width - draw_origin_x - draw_right_margin;
+        let mouse_t_ratio = if current_max > current_min && chart_width_px > gpui::px(0.0) {
+            let r = (mouse_x - draw_origin_x) / chart_width_px;
+            f32::max(0.0, f32::min(1.0, r)) as f64
+        } else {
+            0.5
+        };
+        let focus_t = current_min + (current_max - current_min) * mouse_t_ratio;
+        let mut new_min = focus_t - new_range * mouse_t_ratio;
+        let mut new_max = focus_t + new_range * (1.0 - mouse_t_ratio);
+
+        // Clamp to data boundaries
+        new_min = new_min.max(abs_min_t);
+        new_max = new_max.min(abs_max_t);
+
+        (new_min, new_max)
+    };
+
+    let new_range = new_max - new_min;
+
+    // Check if we've reached or exceeded the full range
+    let abs_range = abs_max_t - abs_min_t;
+    // Use a more lenient threshold (0.95 instead of 0.999) to make it easier to reset
+    let is_at_or_near_full_range = new_range >= abs_range * 0.95;
+
+    if is_at_or_near_full_range {
+        // Reset to show full data
+        this.plot_zoom_start = None;
+        this.plot_zoom_end = None;
+    } else {
+        this.plot_zoom_start = Some(new_min);
+        this.plot_zoom_end = Some(new_max);
+    }
+
+    // Fast filter: slice plot_full_data without re-decoding messages
+    crate::ui::views::chart_view::apply_zoom_to_full_data(this);
+    true
+}
+
+/// The time range of all decoded data, which panning stays within.
+fn full_time_range(app: &CanViewerApp) -> Option<(f64, f64)> {
+    match (app.plot_full_time_min, app.plot_full_time_max) {
+        (Some(min), Some(max)) if min < max => Some((min, max)),
+        _ => None,
+    }
+}
+
+/// Move the zoom window to follow a right-drag. Dragging right shows earlier data, as
+/// if pulling the plot along with the mouse.
+fn pan_plot(app: &mut CanViewerApp, mouse_x: Pixels, window: &Window) {
+    let (Some((start_x, start, end)), Some((min, max))) = (app.plot_pan_start, full_time_range(app)) else {
+        return;
+    };
+    let width = window.bounds().size.width - DRAW_ORIGIN_X - DRAW_RIGHT_MARGIN;
+    if width <= px(0.0) {
+        return;
+    }
+
+    let shift = -((mouse_x - start_x) / width) as f64 * (end - start);
+    let (new_start, new_end) = pan_time_range(start, end, shift, min, max);
+
+    // A window with no points at all would reset the zoom, so hold position over gaps
+    // in the data until the drag reaches more of it.
+    let has_data = app.plot_full_data.iter().any(|series| {
+        let first = series.points.partition_point(|p| p.time < new_start);
+        series.points.get(first).is_some_and(|p| p.time <= new_end)
+    });
+    if has_data {
+        app.plot_zoom_start = Some(new_start);
+        app.plot_zoom_end = Some(new_end);
+        apply_zoom_to_full_data(app);
+    }
 }
 
 /// Helper to format time as absolute `YYYY-MM-DD HH:MM:SS.ffffff` (microsecond
@@ -894,6 +938,15 @@ fn render_lane(
                 cx.notify();
             }),
         )
+        // Stopping the event here prevents the scroll area from also scrolling.
+        .on_scroll_wheel(cx.listener(
+            |this: &mut CanViewerApp, event: &ScrollWheelEvent, window, cx| {
+                if zoom_with_wheel(this, event, window) {
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            },
+        ))
         .child(
             div()
                 .flex()

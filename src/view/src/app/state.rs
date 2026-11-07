@@ -230,6 +230,8 @@ pub struct CanViewerApp {
     pub plot_full_time_min: Option<f64>,
     pub plot_full_time_max: Option<f64>,
     pub is_dragging_zoom: bool,
+    /// While right-dragging: the mouse x and zoom window where the pan began.
+    pub plot_pan_start: Option<(Pixels, f64, f64)>,
     pub zoom_drag_start_x: Option<Pixels>,
     pub zoom_drag_current_x: Option<Pixels>,
 
@@ -433,6 +435,7 @@ impl CanViewerApp {
             plot_full_time_min: None,
             plot_full_time_max: None,
             is_dragging_zoom: false,
+            plot_pan_start: None,
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
             // Plot display settings
