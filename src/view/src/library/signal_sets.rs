@@ -11,10 +11,23 @@ pub struct SignalSetEntry {
     pub signal_name: String,
 }
 
+/// One lane of a saved plot layout.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedLane {
+    pub entries: Vec<SignalSetEntry>,
+    /// User-defined (min, max) Y limits. `None` means automatic.
+    #[serde(default)]
+    pub y_range: Option<(f64, f64)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SignalSet {
     pub name: String,
     pub entries: Vec<SignalSetEntry>,
+    /// The saved plot layout. Empty for sets saved before lanes existed, which open
+    /// with one signal per lane.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lanes: Vec<SavedLane>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -59,14 +72,49 @@ pub fn build_selected_signals_from_set(
     set: &SignalSet,
     channel_type: crate::models::ChannelType,
 ) -> Vec<String> {
+    set.entries.iter().map(|e| signal_id(e, channel_type)).collect()
+}
+
+/// The `selected_signals`-format string for an entry.
+fn signal_id(entry: &SignalSetEntry, channel_type: crate::models::ChannelType) -> String {
     let bus = match channel_type {
         crate::models::ChannelType::CAN => "CAN",
         crate::models::ChannelType::LIN => "LIN",
     };
-    set.entries
+    format!("{}:{}:{}:{}", bus, entry.channel_id, entry.msg_id, entry.signal_name)
+}
+
+/// Describe the current lanes for saving. Unparseable signal IDs are skipped.
+pub fn saved_lanes_from_layout(layout: &crate::plot_lanes::LaneLayout) -> Vec<SavedLane> {
+    layout
+        .lanes
         .iter()
-        .map(|e| format!("{}:{}:{}:{}", bus, e.channel_id, e.msg_id, e.signal_name))
+        .map(|lane| SavedLane {
+            entries: lane.signals.iter().filter_map(|id| parse_signal_id(id)).collect(),
+            y_range: lane.y_range,
+        })
         .collect()
+}
+
+/// The lanes to show for a set. Older sets get one signal per lane.
+pub fn layout_from_set(
+    set: &SignalSet,
+    channel_type: crate::models::ChannelType,
+) -> crate::plot_lanes::LaneLayout {
+    use crate::plot_lanes::{LaneLayout, PlotLane};
+
+    if set.lanes.is_empty() {
+        return LaneLayout::one_signal_per_lane(build_selected_signals_from_set(set, channel_type));
+    }
+    LaneLayout::from_lanes(
+        set.lanes
+            .iter()
+            .map(|lane| PlotLane {
+                signals: lane.entries.iter().map(|e| signal_id(e, channel_type)).collect(),
+                y_range: lane.y_range,
+            })
+            .collect(),
+    )
 }
 
 /// Resolve the path to `signal_sets.json` next to `multi_channel_config.json`.
@@ -166,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_build_selected_signals_from_set_empty() {
-        let set = SignalSet { name: "empty".into(), entries: Vec::new() };
+        let set = SignalSet { name: "empty".into(), entries: Vec::new(), lanes: Vec::new() };
         assert!(build_selected_signals_from_set(&set, ChannelType::CAN).is_empty());
     }
 
@@ -174,6 +222,7 @@ mod tests {
     fn test_build_selected_signals_from_set_can() {
         let set = SignalSet {
             name: "s".into(),
+            lanes: Vec::new(),
             entries: vec![SignalSetEntry {
                 channel_id: 1,
                 msg_id: 256,
@@ -188,6 +237,7 @@ mod tests {
     fn test_build_selected_signals_from_set_lin() {
         let set = SignalSet {
             name: "s".into(),
+            lanes: Vec::new(),
             entries: vec![SignalSetEntry {
                 channel_id: 2,
                 msg_id: 32,
@@ -202,6 +252,7 @@ mod tests {
     fn test_build_selected_signals_preserves_order() {
         let set = SignalSet {
             name: "s".into(),
+            lanes: Vec::new(),
             entries: vec![
                 SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into() },
                 SignalSetEntry { channel_id: 1, msg_id: 512, signal_name: "B".into() },
@@ -214,6 +265,82 @@ mod tests {
         assert_eq!(out[2], "CAN:2:768:C");
     }
 
+    fn entry(signal_name: &str) -> SignalSetEntry {
+        SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: signal_name.into() }
+    }
+
+    fn saved_set(lanes: Vec<SavedLane>) -> SignalSet {
+        SignalSet { name: "s".into(), entries: vec![entry("A"), entry("B")], lanes }
+    }
+
+    #[test]
+    fn sets_saved_before_lanes_still_load() {
+        let json = r#"{"sets_by_library":{"lib":[{"name":"old","entries":[
+            {"channel_id":1,"msg_id":256,"signal_name":"A"}]}]}}"#;
+        let store: SignalSetStore = serde_json::from_str(json).unwrap();
+        let set = &store.sets_by_library["lib"][0];
+        assert_eq!(set.name, "old");
+        assert_eq!(set.entries.len(), 1);
+        assert!(set.lanes.is_empty());
+    }
+
+    #[test]
+    fn sets_without_lanes_save_in_the_old_format() {
+        let set = saved_set(Vec::new());
+        assert!(!serde_json::to_string(&set).unwrap().contains("lanes"));
+    }
+
+    #[test]
+    fn older_sets_open_with_one_signal_per_lane() {
+        let layout = layout_from_set(&saved_set(Vec::new()), ChannelType::CAN);
+        assert_eq!(layout.lanes.len(), 2);
+        assert_eq!(layout.lanes[0].signals, vec!["CAN:1:256:A".to_string()]);
+        assert_eq!(layout.lanes[1].signals, vec!["CAN:1:256:B".to_string()]);
+        assert_eq!(layout.selected, 0);
+    }
+
+    #[test]
+    fn an_empty_older_set_still_has_a_lane() {
+        let set = SignalSet { name: "s".into(), entries: Vec::new(), lanes: Vec::new() };
+        assert_eq!(layout_from_set(&set, ChannelType::CAN).lanes.len(), 1);
+    }
+
+    #[test]
+    fn lanes_survive_saving_and_loading() {
+        use crate::plot_lanes::{LaneLayout, PlotLane};
+
+        let original = LaneLayout {
+            lanes: vec![
+                PlotLane {
+                    signals: vec!["CAN:1:256:A".into(), "CAN:1:256:B".into()],
+                    y_range: Some((-5.0, 100.5)),
+                },
+                PlotLane { signals: Vec::new(), y_range: None },
+                PlotLane { signals: vec!["CAN:1:256:A".into()], y_range: None },
+            ],
+            selected: 2,
+        };
+        let set = saved_set(saved_lanes_from_layout(&original));
+
+        let json = serde_json::to_string(&set).unwrap();
+        let loaded: SignalSet = serde_json::from_str(&json).unwrap();
+        let restored = layout_from_set(&loaded, ChannelType::CAN);
+
+        assert_eq!(restored.lanes, original.lanes);
+        assert_eq!(restored.selected, 0);
+    }
+
+    #[test]
+    fn unparseable_signals_are_left_out_of_saved_lanes() {
+        use crate::plot_lanes::{LaneLayout, PlotLane};
+
+        let layout = LaneLayout::from_lanes(vec![PlotLane {
+            signals: vec!["bad".into(), "CAN:1:256:A".into()],
+            y_range: None,
+        }]);
+        assert_eq!(saved_lanes_from_layout(&layout)[0].entries, vec![entry("A")]);
+    }
+
     #[test]
     fn test_store_roundtrip() {
         let mut store = SignalSetStore::default();
@@ -222,6 +349,7 @@ mod tests {
             vec![
                 SignalSet {
                     name: "set1".into(),
+                    lanes: Vec::new(),
                     entries: vec![SignalSetEntry {
                         channel_id: 1,
                         msg_id: 256,
@@ -230,6 +358,7 @@ mod tests {
                 },
                 SignalSet {
                     name: "set2".into(),
+                    lanes: Vec::new(),
                     entries: vec![
                         SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into() },
                         SignalSetEntry { channel_id: 2, msg_id: 512, signal_name: "B".into() },

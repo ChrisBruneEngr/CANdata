@@ -29,6 +29,28 @@ impl Default for LaneLayout {
 }
 
 impl LaneLayout {
+    /// A layout of these lanes with the first selected. No lanes gives the default.
+    pub fn from_lanes(lanes: Vec<PlotLane>) -> Self {
+        if lanes.is_empty() {
+            Self::default()
+        } else {
+            Self { lanes, selected: 0 }
+        }
+    }
+
+    /// A layout with a lane for each signal.
+    pub fn one_signal_per_lane(signals: Vec<String>) -> Self {
+        Self::from_lanes(
+            signals
+                .into_iter()
+                .map(|signal| PlotLane {
+                    signals: vec![signal],
+                    ..Default::default()
+                })
+                .collect(),
+        )
+    }
+
     pub fn select(&mut self, index: usize) {
         if index < self.lanes.len() {
             self.selected = index;
@@ -111,8 +133,7 @@ impl LaneLayout {
     /// Bring the lanes in line with the app's list of plotted signals.
     ///
     /// Signals no longer listed leave every lane. One new signal joins the selected
-    /// lane. Several at once, as when a signal set loads, replace any empty lanes and
-    /// get a lane each.
+    /// lane. Several at once replace any empty lanes and get a lane each.
     pub fn sync_with_selection(&mut self, selected_signals: &[String]) {
         for lane in &mut self.lanes {
             lane.signals.retain(|s| selected_signals.contains(s));
@@ -210,6 +231,24 @@ mod tests {
     #[test]
     fn starts_with_one_empty_selected_lane() {
         assert_eq!(LaneLayout::default(), layout(&[&[]], 0));
+    }
+
+    #[test]
+    fn a_layout_from_lanes_selects_the_first() {
+        let lanes = layout(&[&["a"], &["b"]], 0).lanes;
+        assert_eq!(LaneLayout::from_lanes(lanes), layout(&[&["a"], &["b"]], 0));
+    }
+
+    #[test]
+    fn a_layout_always_has_a_lane() {
+        assert_eq!(LaneLayout::from_lanes(Vec::new()), LaneLayout::default());
+        assert_eq!(LaneLayout::one_signal_per_lane(Vec::new()), LaneLayout::default());
+    }
+
+    #[test]
+    fn one_signal_per_lane_keeps_the_order() {
+        let l = LaneLayout::one_signal_per_lane(signals(&["a", "b"]));
+        assert_eq!(l, layout(&[&["a"], &["b"]], 0));
     }
 
     #[test]

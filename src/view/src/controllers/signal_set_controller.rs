@@ -2,11 +2,12 @@
 
 use crate::app::CanViewerApp;
 use crate::library::signal_sets::{
-    SignalSet, build_selected_signals_from_set, parse_signal_id, save_signal_set_store,
+    SignalSet, build_selected_signals_from_set, layout_from_set, parse_signal_id,
+    save_signal_set_store, saved_lanes_from_layout,
 };
 use gpui::Context;
 
-/// Save the current `selected_signals` as a new signal set under the active library.
+/// Save the current `selected_signals` and lanes as a new signal set under the active library.
 /// Validates name, requires an active library, requires ≥1 parseable signal.
 pub fn save_current_selection_as_signal_set(
     app: &mut CanViewerApp,
@@ -59,6 +60,7 @@ pub fn save_current_selection_as_signal_set(
     sets.push(SignalSet {
         name: name.clone(),
         entries,
+        lanes: saved_lanes_from_layout(&app.plot_lanes),
     });
     if let Err(e) = save_signal_set_store(&app.signal_set_store, app.config_file_path.as_deref()) {
         eprintln!("❌ Failed to save signal sets: {}", e);
@@ -71,7 +73,7 @@ pub fn save_current_selection_as_signal_set(
     cx.notify();
 }
 
-/// Apply a named set to `selected_signals` and trigger plot refresh.
+/// Apply a named set to `selected_signals` and the lanes, and trigger plot refresh.
 pub fn apply_signal_set(
     app: &mut CanViewerApp,
     library_id: &str,
@@ -103,6 +105,7 @@ pub fn apply_signal_set(
     app.selected_signals.clear();
     let rebuilt = build_selected_signals_from_set(&set, library.channel_type);
     app.selected_signals.extend(rebuilt);
+    app.plot_lanes = layout_from_set(&set, library.channel_type);
     app.active_signal_set = Some((library_id.to_string(), set_name.to_string()));
 
     // Trigger plot refresh

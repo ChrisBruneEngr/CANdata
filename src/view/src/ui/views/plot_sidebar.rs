@@ -1147,7 +1147,7 @@ mod tests {
             app.app_config.active_library_id = Some(id.to_string());
             let store_sets: Vec<_> = sets.into_iter().map(|(name, n)| crate::library::signal_sets::SignalSet {
                 name: name.to_string(),
-                entries: (0..n).map(|i| crate::library::signal_sets::SignalSetEntry {
+                lanes: Vec::new(), entries: (0..n).map(|i| crate::library::signal_sets::SignalSetEntry {
                     channel_id: 1, msg_id: i as u32, signal_name: format!("sig{}", i),
                 }).collect(),
             }).collect();
