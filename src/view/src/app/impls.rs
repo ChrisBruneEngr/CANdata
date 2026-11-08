@@ -33,8 +33,6 @@ impl CanViewerApp {
             plot_full_data: std::sync::Arc::from([]),
             config_dir: None,
             config_file_path: None,
-            // Default window/app states
-            is_maximized: false,
             current_file_name: None,
             files: Vec::new(),
             merged: crate::domain::multi_file::MergedView::empty(),
@@ -47,8 +45,6 @@ impl CanViewerApp {
             blf_parse_errors: Vec::new(),
             show_blf_errors_popover: false,
             pending_drop_paths: Vec::new(),
-            saved_window_bounds: None,
-            display_bounds: None,
             // Initialize uniform list scroll handle
             list_scroll_handle: gpui::UniformListScrollHandle::new(),
             // Initialize scrollbar drag state
@@ -78,7 +74,6 @@ impl CanViewerApp {
             channel_filter_scroll_handle: gpui::UniformListScrollHandle::new(),
             signal_filter_text: "".into(),
             signal_search_input: None,
-            signal_scroll_handle: UniformListScrollHandle::new(),
             // Library management
             library_manager: LibraryManager::new(),
             selected_library_id: None,
@@ -102,7 +97,6 @@ impl CanViewerApp {
             rename_library_text: String::new(),
             rename_version_text: String::new(),
             // Channel configuration dialog
-            show_channel_config_dialog: false,
             new_channel_id: String::new(),
             new_channel_name: String::new(),
             new_channel_db_path: String::new(),
@@ -122,7 +116,6 @@ impl CanViewerApp {
             plot_pan_start: None,
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
-            hover_point: None,
             plot_cursor_time: None,
             plot_cursor_values: std::collections::HashMap::new(),
             plot_scroll_handle: gpui::ScrollHandle::new(),
@@ -559,129 +552,19 @@ impl CanViewerApp {
     }
 }
 impl CanViewerApp {
-    pub(crate) fn toggle_maximize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // Initialize display bounds on first use
-        self.initialize_display_bounds(cx);
-
-        // Preserve runtime state across window recreation
-        let runtime_state = self.save_runtime_state();
-
-        // CRITICAL SAFETY: Reset all unsafe state before window recreation
-        // These fields contain Entity handles or complex state that becomes invalid
-        // after window recreation. Must be reset to None/default values.
-
-        // Reset all Entity<InputState> handles (they point to destroyed window objects)
-        self.library_name_input = None;
-        self.version_name_input = None;
-        self.channel_id_input = None;
-        self.channel_name_input = None;
-        self.channel_db_path_input = None;
-        self.signal_search_input = None;
-        self.plot_y_min_input = None;
-        self.plot_y_max_input = None;
-        self.plot_y_inputs_loaded = None;
-        self.signal_filter_text = "".into();  // Reset filter text to prevent observe callback loop
-
-        // Reset view to LogView (safest view with no complex state)
-        self.current_view = AppView::LogView;
-
-        // Reset dialog states
-        self.show_library_dialog = false;
-        self.show_channel_config_dialog = false;
-        self.show_add_channel_input = false;
-        self.show_version_input = false;
-
-        // Reset scroll handles (create fresh instances)
-        use gpui::UniformListScrollHandle;
-        self.list_scroll_handle = UniformListScrollHandle::new();
-        self.filter_scroll_handle = UniformListScrollHandle::new();
-        self.channel_filter_scroll_handle = UniformListScrollHandle::new();
-        self.signal_scroll_handle = UniformListScrollHandle::new();
-
-        // Reset interaction state
-        self.scrollbar_drag_state = None;
-        self.scroll_offset = px(0.0);
-
-        // Reset only transient plot interaction state (not zoom state or width)
-        self.is_dragging_zoom = false;
-        self.plot_pan_start = None;
-        self.zoom_drag_start_x = None;
-        self.zoom_drag_current_x = None;
-        self.hover_point = None;
-        self.clear_plot_cursor();
-
-        if self.is_maximized {
-            // Restore to normal size
-            if let Some(saved_bounds) = self.saved_window_bounds {
-                // Open new window with saved bounds
-                // New window should NOT be maximized (is_maximized = false)
-                // Also pass None for saved_window_bounds (restored, so no saved bounds)
-                cx.open_window(
-                    WindowOptions {
-                        window_bounds: Some(WindowBounds::Windowed(saved_bounds)),
-                        titlebar: Some(TitlebarOptions {
-                            title: Some("can-viewer".into()),
-                            appears_transparent: true,
-                            traffic_light_position: None,
-                        }),
-                        kind: WindowKind::Normal,
-                        ..Default::default()
-                    },
-                    |window, cx| {
-                        let app = cx.new(|_cx| Self::new_with_maximized_state_and_bounds(false, None));
-                        let view = app.clone();
-                        // Restore runtime state and load configuration
-                        app.update(cx, |app, cx| {
-                            app.restore_runtime_state(runtime_state);
-                            app.load_startup_config();
-                            cx.notify();
-                        });
-                        cx.new(|cx| gpui_component::Root::new(view, window, cx))
-                    },
-                )
-                .ok();
-
-                // Close current window
-                window.remove_window();
-            }
-        } else {
-            // Maximize to display bounds
-            if let Some(display_bounds) = self.display_bounds {
-                // Save current bounds first
-                let saved_bounds = Some(window.bounds());
-
-                // Open new maximized window
-                // New window should be maximized (is_maximized = true)
-                // Pass saved bounds so it can restore later
-                cx.open_window(
-                    WindowOptions {
-                        window_bounds: Some(WindowBounds::Windowed(display_bounds)),
-                        titlebar: Some(TitlebarOptions {
-                            title: Some("can-viewer".into()),
-                            appears_transparent: true,
-                            traffic_light_position: None,
-                        }),
-                        kind: WindowKind::Normal,
-                        ..Default::default()
-                    },
-                    |window, cx| {
-                        let app = cx.new(|_cx| Self::new_with_maximized_state_and_bounds(true, saved_bounds));
-                        // Restore runtime state and load configuration
-                        let view = app.clone();
-                        app.update(cx, |app, cx| {
-                            app.restore_runtime_state(runtime_state);
-                            app.load_startup_config();
-                            cx.notify();
-                        });
-                        cx.new(|cx| gpui_component::Root::new(view, window, cx))
-                    },
-                )
-                .ok();
-
-                // Close current window
-                window.remove_window();
-            }
+    /// Maximize the window, or restore it if it is already maximized.
+    ///
+    /// Uses the platform's native maximize so the window fills the monitor's
+    /// work area (on Windows, the screen minus the taskbar), the same as
+    /// double-clicking the title bar or pressing Win+Up.
+    pub(crate) fn toggle_maximize(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+        #[cfg(windows)]
+        if window.is_maximized() {
+            restore_window(window);
+            return;
         }
+        // On Windows this only maximizes; on Linux it toggles maximized state.
+        window.zoom_window();
     }
 
     pub(crate) fn update_container_height(&mut self, window: &mut Window) {
@@ -1459,27 +1342,6 @@ impl CanViewerApp {
         (library_manager.libraries().len(), total_versions, total_channels)
     }
 
-    /// Initialize display bounds from context
-    ///
-    /// Helper method to calculate and set display bounds on first use.
-    fn initialize_display_bounds(&mut self, cx: &mut Context<Self>) {
-        if self.display_bounds.is_none() {
-            let displays = cx.displays();
-            if let Some(display) = displays.first() {
-                let display_bounds = display.bounds();
-                // Leave a small margin for the task bar and dock
-                let margin = px(4.0);
-                self.display_bounds = Some(Bounds {
-                    origin: Point::new(margin, margin),
-                    size: Size {
-                        width: display_bounds.size.width - margin * 2.0,
-                        height: display_bounds.size.height - margin * 2.0,
-                    },
-                });
-            }
-        }
-    }
-
     /// Set status message and trigger UI update
     ///
     /// Helper method to consistently set status messages and notify the UI.
@@ -2146,5 +2008,21 @@ mod tests {
         app.toggle_message_expanded(1, 0x100);
         assert!(!app.expanded_messages.contains(&(1, 0x100)));
         assert!(app.expanded_messages.contains(&(1, 0x200)));
+    }
+}
+
+/// Restore a maximized window to its previous size. gpui has no restore call
+/// on Windows, so ask the OS directly through the window's HWND.
+#[cfg(windows)]
+fn restore_window(window: &Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{SW_RESTORE, ShowWindowAsync};
+
+    let Ok(handle) = HasWindowHandle::window_handle(window) else { return };
+    if let RawWindowHandle::Win32(h) = handle.as_raw() {
+        let hwnd = HWND(h.hwnd.get() as *mut core::ffi::c_void);
+        // SAFETY: the handle belongs to this live gpui window.
+        let _ = unsafe { ShowWindowAsync(hwnd, SW_RESTORE) };
     }
 }

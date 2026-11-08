@@ -12,36 +12,8 @@ pub struct LoadingProgress {
     pub is_cancelled: bool,
 }
 
-/// Runtime state that needs to be preserved across window operations
-/// This data is NOT stored in config files but needs to survive window recreate
-pub struct RuntimeState {
-    pub current_view: AppView,
-    pub files: Vec<std::sync::Arc<crate::domain::multi_file::FileSegment>>,
-    pub merged: crate::domain::multi_file::MergedView,
-    pub current_file_name: Option<String>,
-    pub plot_data: std::sync::Arc<[crate::models::Series]>,
-    /// Full (unfiltered) decoded data cache — used for fast zoom-only re-filter
-    pub plot_full_data: std::sync::Arc<[crate::models::Series]>,
-    pub plot_zoom_start: Option<f64>,
-    pub plot_zoom_end: Option<f64>,
-    pub plot_full_time_min: Option<f64>,
-    pub plot_full_time_max: Option<f64>,
-    pub selected_signals: Vec<String>,
-    pub plot_lanes: crate::plot_lanes::LaneLayout,
-    pub dbc_channels: HashMap<u16, DbcDatabase>,
-    pub ldf_channels: HashMap<u16, LdfDatabase>,
-    pub start_time: Option<chrono::NaiveDateTime>,
-    pub active_library_id: Option<String>,
-    pub active_version_name: Option<String>,
-    pub expanded_channels: std::collections::HashSet<u16>,
-    pub expanded_messages: std::collections::HashSet<(u16, u32)>, // (ch_id, msg_id)
-    // Signal set session state
-    pub signal_set_store: crate::library::signal_sets::SignalSetStore,
-    pub active_signal_set: Option<(String, String)>,
-}
-
 use blf::LogObject;
-use gpui::{Bounds, Entity, Pixels, UniformListScrollHandle};
+use gpui::{Entity, Pixels, UniformListScrollHandle};
 use parser::dbc::DbcDatabase;
 use parser::ldf::LdfDatabase;
 use std::collections::HashMap;
@@ -96,8 +68,6 @@ pub struct CanViewerApp {
     pub config_file_path: Option<PathBuf>,
 
 
-    // Window state
-    pub is_maximized: bool,
     // Currently loaded BLF file name (for StatusBar display)
     pub current_file_name: Option<String>,
     // 多文件加载状态
@@ -119,8 +89,6 @@ pub struct CanViewerApp {
     /// Validated BLF paths waiting for an in-flight load to finish.
     /// Drained by the render tick when `loading_progress` is None.
     pub pending_drop_paths: Vec<std::path::PathBuf>,
-    pub saved_window_bounds: Option<Bounds<Pixels>>,
-    pub display_bounds: Option<Bounds<Pixels>>,
 
     // Scroll state
     pub list_scroll_handle: UniformListScrollHandle,
@@ -151,7 +119,6 @@ pub struct CanViewerApp {
     // Signal filter
     pub signal_filter_text: gpui::SharedString,
     pub signal_search_input: Option<Entity<InputState>>,
-    pub signal_scroll_handle: UniformListScrollHandle,
 
     // Status message
     pub status_msg: gpui::SharedString,
@@ -183,7 +150,6 @@ pub struct CanViewerApp {
     pub rename_version_text: String,
 
     // Channel configuration dialog state
-    pub show_channel_config_dialog: bool,
     pub new_channel_id: String,
     pub new_channel_name: String,
     pub new_channel_db_path: String,
@@ -209,7 +175,6 @@ pub struct CanViewerApp {
     // Plot display settings
 
     // Plot interaction state
-    pub hover_point: Option<HoverPoint>,
     /// Time of the cursor set by clicking a chart.
     pub plot_cursor_time: Option<f64>,
     /// Formatted value of every signal at the cursor, keyed by signal ID.
@@ -255,15 +220,6 @@ pub struct CanViewerApp {
 
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct HoverPoint {
-    pub time: f64,
-    pub value: f64,
-    pub x_px: Pixels,
-    pub y_px: Pixels,
-    pub series_name: String,
-}
-
 /// Which input to focus next when the user presses Enter in the add-channel form.
 /// Set by `InputEvent::PressEnter` subscriptions (no window access there),
 /// consumed by `render()` which has window access.
@@ -279,11 +235,6 @@ impl CanViewerApp {
     /// Create a new CanViewerApp instance with default state (used by tests)
     #[cfg(test)]
     pub fn new_state() -> Self {
-        Self::new_with_maximized_state_and_bounds(false, None)
-    }
-
-    /// Create a new CanViewerApp instance with maximize state and saved bounds
-    pub fn new_with_maximized_state_and_bounds(is_maximized: bool, saved_window_bounds: Option<Bounds<Pixels>>) -> Self {
         Self {
             current_view: AppView::LogView, // Force LogView to prevent chart/library crashes
             messages: std::sync::Arc::from([]),
@@ -297,7 +248,6 @@ impl CanViewerApp {
             plot_full_data: std::sync::Arc::from([]),
             config_dir: None,
             config_file_path: None,
-            is_maximized,
             current_file_name: None,
             files: Vec::new(),
             merged: crate::domain::multi_file::MergedView::empty(),
@@ -310,8 +260,6 @@ impl CanViewerApp {
             blf_parse_errors: Vec::new(),
             show_blf_errors_popover: false,
             pending_drop_paths: Vec::new(),
-            saved_window_bounds,
-            display_bounds: None,
             list_scroll_handle: UniformListScrollHandle::new(),
             scrollbar_drag_state: None,
             scroll_offset: gpui::px(0.0),
@@ -341,7 +289,6 @@ impl CanViewerApp {
             new_version_cursor_position: 0,
             show_library_dialog: false,
             signal_search_input: None,
-            signal_scroll_handle: UniformListScrollHandle::new(),
             // gpui-component input support
             library_name_input: None, // Will be initialized when cx is available
             version_name_input: None, // Will be initialized when cx is available
@@ -353,7 +300,6 @@ impl CanViewerApp {
             rename_library_text: String::new(),
             rename_version_text: String::new(),
             // Channel configuration dialog
-            show_channel_config_dialog: false,
             new_channel_id: String::new(),
             new_channel_name: String::new(),
             new_channel_db_path: String::new(),
@@ -375,7 +321,6 @@ impl CanViewerApp {
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
             // Plot display settings
-            hover_point: None,
             plot_cursor_time: None,
             plot_cursor_values: std::collections::HashMap::new(),
             plot_scroll_handle: gpui::ScrollHandle::new(),
@@ -402,73 +347,4 @@ impl CanViewerApp {
         }
     }
 
-    /// Save runtime state that needs to be preserved across window operations
-    /// This includes loaded data and messages
-    pub fn save_runtime_state(&self) -> RuntimeState {
-        eprintln!("💾 Saving runtime state: {:?} view, {} files, {} plot series, zoom: {:?}-{:?}, {} signals, {} DBC, {} LDF",
-            self.current_view, self.files.len(), self.plot_data.len(),
-            self.plot_zoom_start, self.plot_zoom_end,
-            self.selected_signals.len(),
-            self.dbc_channels.len(), self.ldf_channels.len());
-        RuntimeState {
-            current_view: self.current_view.clone(),
-            files: self.files.clone(),
-            merged: self.merged.clone(),
-            current_file_name: self.current_file_name.clone(),
-            plot_data: self.plot_data.clone(),
-            plot_full_data: self.plot_full_data.clone(),
-            plot_zoom_start: self.plot_zoom_start,
-            plot_zoom_end: self.plot_zoom_end,
-            plot_full_time_min: self.plot_full_time_min,
-            plot_full_time_max: self.plot_full_time_max,
-            selected_signals: self.selected_signals.clone(),
-            plot_lanes: self.plot_lanes.clone(),
-            dbc_channels: self.dbc_channels.clone(),
-            ldf_channels: self.ldf_channels.clone(),
-            start_time: self.start_time,
-            active_library_id: self.active_library_id.clone(),
-            active_version_name: self.active_version_name.clone(),
-            expanded_channels: self.expanded_channels.clone(),
-            expanded_messages: self.expanded_messages.clone(),
-            signal_set_store: self.signal_set_store.clone(),
-            active_signal_set: self.active_signal_set.clone(),
-        }
-    }
-
-    /// Restore runtime state after window operations
-    /// This preserves the loaded configuration and messages when maximizing/restoring windows
-    pub fn restore_runtime_state(&mut self, state: RuntimeState) {
-        eprintln!("♻️  Restoring runtime state: {:?} view, {} files, {} plot series, zoom: {:?}-{:?}, {} signals, {} DBC, {} LDF",
-            state.current_view,
-            state.files.len(),
-            state.plot_data.len(),
-            state.plot_zoom_start, state.plot_zoom_end,
-            state.selected_signals.len(),
-            state.dbc_channels.len(), state.ldf_channels.len());
-        self.current_view = state.current_view;
-        self.files = state.files;
-        // 兼容字段：与 merged.messages 共享同一 Arc 引用（必须在 move 之前 clone）
-        self.messages = state.merged.messages.clone();
-        self.merged = state.merged;
-        self.current_file_name = state.current_file_name;
-        self.plot_data = state.plot_data;
-        self.plot_full_data = state.plot_full_data;
-        self.plot_zoom_start = state.plot_zoom_start;
-        self.plot_zoom_end = state.plot_zoom_end;
-        self.plot_full_time_min = state.plot_full_time_min;
-        self.plot_full_time_max = state.plot_full_time_max;
-        self.selected_signals = state.selected_signals;
-        self.plot_lanes = state.plot_lanes;
-        self.dbc_channels = state.dbc_channels;
-        self.ldf_channels = state.ldf_channels;
-        self.start_time = state.start_time;
-        self.active_library_id = state.active_library_id;
-        self.active_version_name = state.active_version_name;
-        self.expanded_channels = state.expanded_channels;
-        self.expanded_messages = state.expanded_messages;
-        self.signal_set_store = state.signal_set_store;
-        self.active_signal_set = state.active_signal_set;
-        eprintln!("✅ State restored. Now have: {:?} view, {} files, {} messages, {} plot series",
-            self.current_view, self.files.len(), self.messages.len(), self.plot_data.len());
-    }
 }

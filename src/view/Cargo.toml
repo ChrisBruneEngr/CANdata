@@ -23,6 +23,9 @@ smol = "2"
 # Platform-specific file dialog backend
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.14", default-features = false, features = ["tokio"] }
+# Native window restore (gpui has no restore call on Windows); same versions gpui uses.
+raw-window-handle = "0.6"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rfd = { version = "0.14", default-features = false, features = ["tokio"] }

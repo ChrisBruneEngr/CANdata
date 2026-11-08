@@ -6230,12 +6230,14 @@ dependencies = [
  "gpui-component",
  "log",
  "parser",
+ "raw-window-handle",
  "rfd",
  "serde",
  "serde_json",
  "smol",
  "tempfile",
  "urlencoding",
+ "windows 0.61.3",
  "winres",
 ]
 
