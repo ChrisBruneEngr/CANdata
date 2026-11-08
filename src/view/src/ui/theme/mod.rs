@@ -3,8 +3,6 @@
 //! This module provides a cohesive color palette and styling utilities
 //! inspired by Zed editor's modern, clean aesthetic.
 
-use gpui::Rgba;
-
 /// Catppuccin Mocha color palette
 pub mod palette {
     use gpui::Rgba;

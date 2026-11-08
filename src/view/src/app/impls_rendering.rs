@@ -2174,7 +2174,7 @@ impl Render for CanViewerApp {
                                     move |_event, _window, cx| {
                                         cx.stop_propagation();
                                         let v = version.clone();
-                                        cx.spawn(async move |cx| {
+                                        cx.spawn(async move |_cx| {
                                             let _ = rfd::AsyncMessageDialog::new()
                                                 .set_title("About can-viewer")
                                                 .set_description(&format!(

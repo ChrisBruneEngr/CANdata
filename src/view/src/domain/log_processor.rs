@@ -5,7 +5,6 @@
 
 use blf::LogObject;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 /// Statistics about log data
 #[derive(Clone, Debug, Default)]

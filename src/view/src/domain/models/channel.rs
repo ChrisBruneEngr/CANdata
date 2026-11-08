@@ -3,7 +3,7 @@
 //! Pure business model for CAN/LIN channels.
 //! No UI framework dependencies.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fmt;
 
 /// Channel type enumeration

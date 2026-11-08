@@ -20,24 +20,3 @@ pub mod time_handler;
 
 // Multi-file loading and global merged view
 pub mod multi_file;
-
-// Re-export domain models
-pub use self::models::{
-    Message, MessageType, MessageData, Direction,
-    Channel, ChannelConfig, ChannelType, ChannelError,
-    FilterCriteria, FilterType,
-    IdFilter, ChannelFilter, MessageTypeFilter, DirectionFilter,
-    SignalNameFilter, DataPatternFilter,
-    DatabaseType, ChannelDatabase, LibraryVersion, SignalLibrary,
-};
-
-// Re-export services
-pub use self::services::{
-    MessageService, FilterService, StatisticsService,
-};
-
-// Re-export legacy types (for backward compatibility)
-pub use config_manager::{ChannelConfig as LegacyChannelConfig, ConfigManager};
-pub use log_processor::{LogProcessor, LogStatistics, MessageFilter};
-pub use signal_decoder::{DecodedSignal, SignalDecoder, SignalValue};
-pub use time_handler::{TimeHandler, TimestampFormatter};

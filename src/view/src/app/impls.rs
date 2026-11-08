@@ -713,7 +713,7 @@ impl CanViewerApp {
                         ..Default::default()
                     },
                     |window, cx| {
-                        let mut app = cx.new(|_cx| Self::new_with_maximized_state_and_bounds(false, None));
+                        let app = cx.new(|_cx| Self::new_with_maximized_state_and_bounds(false, None));
                         let view = app.clone();
                         // Restore runtime state and load configuration
                         app.update(cx, |app, cx| {
@@ -750,7 +750,7 @@ impl CanViewerApp {
                         ..Default::default()
                     },
                     |window, cx| {
-                        let mut app = cx.new(|_cx| Self::new_with_maximized_state_and_bounds(true, saved_bounds));
+                        let app = cx.new(|_cx| Self::new_with_maximized_state_and_bounds(true, saved_bounds));
                         // Restore runtime state and load configuration
                         let view = app.clone();
                         app.update(cx, |app, cx| {

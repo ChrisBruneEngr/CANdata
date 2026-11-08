@@ -58,7 +58,7 @@ impl FilterService {
         let filtered: Vec<usize> = messages
             .iter()
             .enumerate()
-            .filter(|(idx, msg)| self.message_matches_filter(msg, filter))
+            .filter(|(_idx, msg)| self.message_matches_filter(msg, filter))
             .map(|(idx, _)| idx)
             .collect();
 

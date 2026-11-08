@@ -10,9 +10,7 @@ use gpui_component::ActiveTheme;
 use gpui_component::PixelsExt;
 use gpui_component::Sizable;
 use gpui_component::v_flex;
-use gpui_component::scroll::ScrollableElement;
 use std::sync::Arc;
-use chrono::{Timelike, Datelike};
 
 /// Left edge of a lane's plot area in the window: sidebar 320 + scroll area padding
 /// 16 + lane padding 8 + canvas left padding 36.
@@ -1342,7 +1340,7 @@ pub fn extract_series_data(app: &CanViewerApp) -> Arc<[Series]> {
                 continue;
             }
 
-            let (m_id, ch, timestamp, data, flags): (u32, u16, u64, &[u8], u32) = match msg {
+            let (m_id, ch, timestamp, data, _flags): (u32, u16, u64, &[u8], u32) = match msg {
                 LogObject::CanMessage(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
                 LogObject::CanMessage2(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
                 LogObject::CanFdMessage(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),

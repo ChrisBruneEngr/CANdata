@@ -4,7 +4,7 @@
 //! It handles conversion from raw bytes to physical values using DBC/LDF definitions.
 
 use parser::dbc::{DbcDatabase, Signal as DbcSignal};
-use parser::ldf::{LdfDatabase, LdfFrame};
+use parser::ldf::LdfDatabase;
 use std::collections::HashMap;
 
 /// Decoded signal value with metadata

@@ -3,7 +3,7 @@
 //! Pure business model for CAN log messages.
 //! No UI framework dependencies.
 
-use chrono::{DateTime, NaiveDateTime};
+use chrono::NaiveDateTime;
 use std::fmt;
 
 /// CAN log message - domain layer representation

@@ -4,7 +4,6 @@
 //! Based on the existing ID and channel filter dropdowns.
 
 use gpui::{prelude::*, *};
-use std::rc::Rc;
 
 /// Dropdown menu component
 ///

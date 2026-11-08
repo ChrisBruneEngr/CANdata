@@ -4,13 +4,6 @@
 //! such as window positioning and maximization.
 
 #[cfg(target_os = "windows")]
-use std::ffi::OsStr;
-#[cfg(target_os = "windows")]
-use std::os::windows::prelude::*;
-#[cfg(target_os = "windows")]
-use std::ptr;
-
-#[cfg(target_os = "windows")]
 #[repr(C)]
 struct RECT {
     left: i32,

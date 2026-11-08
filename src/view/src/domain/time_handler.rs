@@ -2,7 +2,7 @@
 //!
 //! This module provides time-related functionality without UI dependencies.
 
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::NaiveDateTime;
 use std::fmt;
 
 /// Represents a timestamp in the BLF file

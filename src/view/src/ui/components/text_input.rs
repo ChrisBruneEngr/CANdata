@@ -40,7 +40,6 @@
 //!     );
 //! ```
 
-use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 /// Character validation mode for text input

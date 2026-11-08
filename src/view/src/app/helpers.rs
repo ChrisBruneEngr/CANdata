@@ -8,7 +8,7 @@ use chrono::{TimeZone, Utc};
 /// Convert BLF timestamp to seconds
 ///
 /// BLF timestamps are in 100ns units since epoch
-pub fn convert_timestamp_to_seconds(timestamp: u64, flags: u32) -> f64 {
+pub fn convert_timestamp_to_seconds(timestamp: u64, _flags: u32) -> f64 {
     // BLF timestamp is in 100ns units
     // flags might contain timezone info, but we ignore for now
     timestamp as f64 / 10_000_000.0
