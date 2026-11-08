@@ -1,11 +1,6 @@
 //! Command handling module
 //!
-//! This module contains command structures and handlers for various application actions.
+//! `impl CanViewerApp` blocks for user actions that live outside the main
+//! `impls.rs` file.
 
-pub mod navigation;
-pub mod dialog;
-pub mod config;
-pub mod load;
-pub mod library;
-pub mod multi_file;
 pub mod library_transfer;
