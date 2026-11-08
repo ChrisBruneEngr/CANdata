@@ -5,7 +5,7 @@
 //! user pick a library + version and activate without leaving the data
 //! view, or jump to the full Library management view.
 
-use crate::app::{AppView, CanViewerApp, LibraryDialogType};
+use crate::app::{AppView, CanViewerApp};
 use crate::ui::theme::colors;
 use crate::ui::theme::spacing;
 use gpui::{prelude::*, *};
@@ -308,7 +308,6 @@ fn render_footer(
                     view_for_new.update(cx, |app, cx| {
                         app.current_view = AppView::LibraryView;
                         app.show_library_dialog = true;
-                        app.library_dialog_type = LibraryDialogType::Create;
                         cx.notify();
                     });
                 }),

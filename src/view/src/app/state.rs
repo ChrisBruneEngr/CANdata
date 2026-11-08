@@ -12,13 +12,6 @@ pub struct LoadingProgress {
     pub is_cancelled: bool,
 }
 
-/// Simple deprecated input state for backward compatibility
-#[derive(Clone, Debug, Default)]
-pub struct SimpleDeprecatedInputState {
-    pub text: String,
-    pub cursor_position: usize,
-}
-
 /// Runtime state that needs to be preserved across window operations
 /// This data is NOT stored in config files but needs to survive window recreate
 pub struct RuntimeState {
@@ -60,8 +53,6 @@ use crate::{AppConfig, ChannelType};
 // Import the real LibraryManager from the library module
 pub use crate::library::LibraryManager;
 
-// Import DatabaseType for library filtering
-use crate::models::library::DatabaseType;
 
 // Import gpui-component input support
 use gpui_component::input::InputState;
@@ -104,8 +95,6 @@ pub struct CanViewerApp {
     pub config_dir: Option<PathBuf>,
     pub config_file_path: Option<PathBuf>,
 
-    // Signal library local storage
-    pub signal_storage: Option<crate::library::SignalLibraryStorage>,
 
     // Window state
     pub is_maximized: bool,
@@ -151,8 +140,6 @@ pub struct CanViewerApp {
     pub filter_scroll_offset: Pixels,
     pub filter_scroll_handle: UniformListScrollHandle,
     pub mouse_over_filter_dropdown: bool,
-    pub mouse_down_on_filter_dropdown: bool,
-    pub dropdown_just_opened: bool,
 
     // Channel filter
     pub channel_filter: Option<u16>,
@@ -178,7 +165,6 @@ pub struct CanViewerApp {
     pub active_version_name: Option<String>,
     pub new_library_name: String,
     pub library_cursor_position: usize,
-    pub library_versions_expanded: bool,
     pub show_version_input: bool,
     pub new_version_name: String,
     pub new_version_cursor_position: usize,
@@ -187,9 +173,6 @@ pub struct CanViewerApp {
     // gpui-component input support for library management
     pub library_name_input: Option<Entity<InputState>>,
     pub version_name_input: Option<Entity<InputState>>,
-    pub library_dialog_type: LibraryDialogType,
-    pub library_search_query: String,
-    pub library_filter_type: Option<DatabaseType>,
 
     // Rename inline state
     pub renaming_library_id: Option<String>,
@@ -212,17 +195,6 @@ pub struct CanViewerApp {
     pub new_channel_type: ChannelType, // Store selected channel type (CAN/LIN)
     pub pending_file_path: Option<std::sync::mpsc::Receiver<Option<String>>>, // For file dialog result
 
-    // Deprecated: These fields are kept for backward compatibility during migration
-    #[deprecated(note = "Use library_name_input instead")]
-    pub focused_library_input: Option<String>,
-    #[deprecated(note = "Use library_name_input instead")]
-    pub is_editing_library_name: bool,
-    #[deprecated(note = "Use library_name_input instead")]
-    pub library_input_state: SimpleDeprecatedInputState,
-    #[deprecated(note = "Not needed with gpui-component Input")]
-    pub library_focus_handle: Option<gpui::FocusHandle>,
-    #[deprecated(note = "Not needed with gpui-component Input")]
-    pub ime_handler_registered: bool,
     // Plot zoom state
     pub plot_zoom_start: Option<f64>,
     pub plot_zoom_end: Option<f64>,
@@ -303,23 +275,11 @@ pub enum PendingAddChannelFocus {
     ChannelBlur,
 }
 
-/// Library dialog type
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LibraryDialogType {
-    Create,
-    AddVersion,
-    QuickImport,
-}
-
 impl CanViewerApp {
-    /// Create a new CanViewerApp instance with default state
+    /// Create a new CanViewerApp instance with default state (used by tests)
+    #[cfg(test)]
     pub fn new_state() -> Self {
-        Self::new_with_maximized_state(false)
-    }
-
-    /// Create a new CanViewerApp instance with specified maximize state
-    pub fn new_with_maximized_state(is_maximized: bool) -> Self {
-        Self::new_with_maximized_state_and_bounds(is_maximized, None)
+        Self::new_with_maximized_state_and_bounds(false, None)
     }
 
     /// Create a new CanViewerApp instance with maximize state and saved bounds
@@ -337,7 +297,6 @@ impl CanViewerApp {
             plot_full_data: std::sync::Arc::from([]),
             config_dir: None,
             config_file_path: None,
-            signal_storage: crate::library::SignalLibraryStorage::new().ok(),
             is_maximized,
             current_file_name: None,
             files: Vec::new(),
@@ -364,8 +323,6 @@ impl CanViewerApp {
             filter_scroll_offset: gpui::px(0.0),
             filter_scroll_handle: UniformListScrollHandle::new(),
             mouse_over_filter_dropdown: false,
-            mouse_down_on_filter_dropdown: false,
-            dropdown_just_opened: false,
             channel_filter: None,
             channel_filter_text: gpui::SharedString::from(""),
             show_channel_filter_input: false,
@@ -379,14 +336,10 @@ impl CanViewerApp {
             active_version_name: None,
             new_library_name: String::new(),
             library_cursor_position: 0,
-            library_versions_expanded: true,
             show_version_input: false,
             new_version_name: String::new(),
             new_version_cursor_position: 0,
             show_library_dialog: false,
-            library_dialog_type: LibraryDialogType::Create,
-            library_search_query: String::new(),
-            library_filter_type: None,
             signal_search_input: None,
             signal_scroll_handle: UniformListScrollHandle::new(),
             // gpui-component input support
@@ -412,11 +365,6 @@ impl CanViewerApp {
             new_channel_type: ChannelType::CAN, // Default to CAN
             pending_file_path: None,     // For file dialog result
             // Deprecated fields for backward compatibility
-            focused_library_input: None,
-            is_editing_library_name: false,
-            library_input_state: SimpleDeprecatedInputState::default(),
-            library_focus_handle: None,
-            ime_handler_registered: false,
             // Plot zoom state
             plot_zoom_start: None,
             plot_zoom_end: None,

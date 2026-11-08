@@ -1721,19 +1721,6 @@ pub fn calc_y_tick_count(chart_h_px: f32) -> usize {
     approx.clamp(3, 8)
 }
 
-/// 时间标签 fallback（series.time_labels 为空时用）。
-/// span 是 max_t - min_t（秒）。
-/// < 60s → 三位小数秒；< 1h → 一位小数秒；否则 → 一位小数分钟。
-pub fn format_time_label(t: f64, span: f64) -> String {
-    if span < 60.0 {
-        format!("{:.3}s", t)
-    } else if span < 3600.0 {
-        format!("{:.1}s", t)
-    } else {
-        format!("{:.1}min", t / 60.0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1774,14 +1761,4 @@ mod tests {
         assert_eq!(calc_y_tick_count(250.0), 5);
     }
 
-    #[test]
-    fn format_time_label_ranges() {
-        assert_eq!(format_time_label(12.345, 30.0), "12.345s");
-        assert_eq!(format_time_label(5.0, 300.0), "5.0s");
-        assert_eq!(format_time_label(120.0, 4000.0), "2.0min");
-        // Boundary cases: at exactly 60.0 the first branch (< 60.0) fails → second branch → "60.0s";
-        // at exactly 3600.0 the second branch (< 3600.0) fails → else → 3600.0/60.0 = 60.0 → "60.0min".
-        assert_eq!(format_time_label(60.0, 60.0), "60.0s");
-        assert_eq!(format_time_label(3600.0, 3600.0), "60.0min");
-    }
 }

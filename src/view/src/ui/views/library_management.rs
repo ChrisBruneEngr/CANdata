@@ -5,7 +5,6 @@
 //! - 中栏：版本列表
 //! - 右栏：通道配置
 
-use crate::app::LibraryDialogType;
 use crate::models::{ChannelDatabase, ChannelMapping, LibraryVersion, SignalLibrary};
 use gpui::prelude::*;
 use gpui::*;
@@ -579,7 +578,6 @@ fn render_add_library_button(cx: &mut Context<crate::CanViewerApp>) -> impl Into
                     eprintln!("✅ Created input and subscribed to events");
                 }
                 this.show_library_dialog = true;
-                this.library_dialog_type = LibraryDialogType::Create;
                 cx.notify();
             }),
         )

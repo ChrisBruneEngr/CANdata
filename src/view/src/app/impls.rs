@@ -5,11 +5,9 @@
 use super::state::{AppView, CanViewerApp, LibraryManager};
 use crate::AppConfig;
 use crate::ChannelType;
-use blf::{BlfResult, LogObject};
+use blf::BlfResult;
 use gpui::{prelude::*, *};
 use gpui_component::input::InputState;
-use parser::dbc::DbcDatabase;
-use parser::ldf::LdfDatabase;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -35,7 +33,6 @@ impl CanViewerApp {
             plot_full_data: std::sync::Arc::from([]),
             config_dir: None,
             config_file_path: None,
-            signal_storage: crate::library::SignalLibraryStorage::new().ok(),
             // Default window/app states
             is_maximized: false,
             current_file_name: None,
@@ -73,8 +70,6 @@ impl CanViewerApp {
             filter_scroll_handle: gpui::UniformListScrollHandle::new(),
             // Initialize mouse tracking
             mouse_over_filter_dropdown: false,
-            mouse_down_on_filter_dropdown: false,
-            dropdown_just_opened: false,
             // Channel filter
             channel_filter: None,
             channel_filter_text: "".into(),
@@ -92,14 +87,10 @@ impl CanViewerApp {
             active_version_name: None,
             new_library_name: String::new(),
             library_cursor_position: 0,
-            library_versions_expanded: true,
             show_version_input: false,
             new_version_name: String::new(),
             new_version_cursor_position: 0,
             show_library_dialog: false,
-            library_dialog_type: super::state::LibraryDialogType::Create,
-            library_search_query: String::new(),
-            library_filter_type: None,
             // gpui-component input support
             library_name_input: None,
             version_name_input: None,
@@ -123,11 +114,6 @@ impl CanViewerApp {
             new_channel_type: ChannelType::CAN,
             pending_file_path: None,
             // Deprecated fields for backward compatibility
-            focused_library_input: None,
-            is_editing_library_name: false,
-            library_input_state: crate::app::state::SimpleDeprecatedInputState::default(),
-            library_focus_handle: None,
-            ime_handler_registered: false,
             plot_zoom_start: None,
             plot_zoom_end: None,
             plot_full_time_min: None,
@@ -501,23 +487,10 @@ impl CanViewerApp {
         self.status_msg = "Ready".into();
     }
 
-    fn load_config(&mut self, _cx: &mut Context<Self>) {
-        // TODO: File dialog integration requires fixing GPUI async lifetime issues on Windows
-        self.status_msg =
-            "Config loading temporarily unavailable. Please use command-line arguments.".into();
-    }
-
     pub(crate) fn import_database_file(&mut self, _cx: &mut Context<Self>) {
         // TODO: File dialog integration requires fixing GPUI async lifetime issues on Windows
         self.status_msg =
             "Database import temporarily unavailable. Please use library management.".into();
-    }
-    pub(crate) fn get_timestamp_string(&self, timestamp: u64) -> String {
-        // `timestamp` 现在是绝对 Unix 纳秒(abs_ns),由 MergedView::from_segments
-        // 在合并时写入 LogObject.timestamp()。把它直接转成 NaiveDateTime 显示。
-        use chrono::{TimeZone, Utc};
-        let dt = Utc.timestamp_nanos(timestamp as i64);
-        dt.naive_utc().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
     }
 
     /// Handle pending file dialog result
@@ -566,64 +539,6 @@ impl CanViewerApp {
             .map(|b| format!("{:02X}", b))
             .collect::<Vec<_>>()
             .join("")
-    }
-
-    /// Extract and format CAN signals from DBC database
-    ///
-    /// Helper method to decode and format signals from a CAN message.
-    /// Returns a comma-separated string of signal=value pairs.
-    pub(crate) fn extract_can_signals(
-        &self,
-        channel: u16,
-        msg_id: u32,
-        data: &[u8],
-    ) -> String {
-        if let Some(db) = self.dbc_channels.get(&channel) {
-            if let Some(message) = db.messages.get(&msg_id) {
-                return message
-                    .signals
-                    .iter()
-                    .map(|(name, signal)| {
-                        let val = signal.decode(data);
-                        format!("{}={:.*}", name, signal.decimal_places(), val)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-            }
-        }
-        String::new()
-    }
-
-    /// Extract and format LIN signals from LDF database
-    ///
-    /// Helper method to decode and format signals from a LIN message.
-    /// Returns a comma-separated string of signal=value pairs.
-    pub(crate) fn extract_lin_signals(
-        &self,
-        channel: u16,
-        frame_id: u8,
-        data: &[u8],
-    ) -> String {
-        if let Some(db) = self.ldf_channels.get(&channel) {
-            // Search for the frame with the matching ID
-            if let Some(frame) = db.frames.values().find(|f| f.id == frame_id as u32) {
-                return frame
-                    .signals
-                    .iter()
-                    .filter_map(|mapping| {
-                        db.signals
-                            .get(&mapping.signal_name)
-                            .map(|sig| (mapping, sig))
-                    })
-                    .map(|(mapping, signal)| {
-                        let val = signal.decode(data, mapping.offset);
-                        format!("{}={}", signal.name, val)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-            }
-        }
-        String::new()
     }
 
     /// Import a database file
@@ -767,160 +682,6 @@ impl CanViewerApp {
                 window.remove_window();
             }
         }
-    }
-
-    fn new_with_state(
-        current_view: AppView,
-        messages: std::sync::Arc<[LogObject]>,
-        status_msg: SharedString,
-        dbc_channels: HashMap<u16, DbcDatabase>,
-        ldf_channels: HashMap<u16, LdfDatabase>,
-        app_config: AppConfig,
-        selected_signals: Vec<String>,
-        start_time: Option<chrono::NaiveDateTime>,
-        config_dir: Option<PathBuf>,
-        config_file_path: Option<PathBuf>,
-        is_maximized: bool,
-        saved_window_bounds: Option<Bounds<Pixels>>,
-        display_bounds: Option<Bounds<Pixels>>,
-        library_manager: LibraryManager,
-    ) -> Self {
-        let mut app = Self {
-            current_view,
-            messages,
-            status_msg,
-            dbc_channels,
-            ldf_channels,
-            app_config,
-            selected_signals,
-            start_time,
-            plot_data: std::sync::Arc::from([]),
-            plot_full_data: std::sync::Arc::from([]),
-            config_dir,
-            config_file_path,
-            signal_storage: crate::library::SignalLibraryStorage::new().ok(),
-            is_maximized,
-            current_file_name: None,
-            files: Vec::new(),
-            merged: crate::domain::multi_file::MergedView::empty(),
-            show_files_popover: false,
-            loading_progress: None,
-            library_picker_dismissed: false,
-            library_picker_selected_version: std::collections::HashMap::new(),
-            blf_bytes_total: 0,
-            blf_bytes_consumed: 0,
-            blf_parse_errors: Vec::new(),
-            show_blf_errors_popover: false,
-            pending_drop_paths: Vec::new(),
-            saved_window_bounds,
-            display_bounds,
-            list_scroll_handle: gpui::UniformListScrollHandle::new(),
-            scrollbar_drag_state: None,
-            scroll_offset: px(0.0),
-            list_container_height: 850.0,
-            id_display_decimal: true, // Default to decimal
-            id_filter: None,
-            id_filter_text: "".into(),
-            show_id_filter_input: false,
-            filter_scroll_offset: px(0.0),
-            filter_scroll_handle: gpui::UniformListScrollHandle::new(),
-            mouse_over_filter_dropdown: false,
-            mouse_down_on_filter_dropdown: false,
-            dropdown_just_opened: false,
-            // Channel filter
-            channel_filter: None,
-            channel_filter_text: "".into(),
-            show_channel_filter_input: false,
-            channel_filter_scroll_offset: px(0.0),
-            channel_filter_scroll_handle: gpui::UniformListScrollHandle::new(),
-            signal_filter_text: "".into(),
-            signal_search_input: None,
-            signal_scroll_handle: gpui::UniformListScrollHandle::new(),
-            // Library management
-            library_manager,
-            selected_library_id: None,
-            selected_version_id: None,
-            active_library_id: None,
-            active_version_name: None,
-            new_library_name: String::new(),
-            library_cursor_position: 0,
-            library_versions_expanded: true,
-            show_version_input: false,
-            new_version_name: String::new(),
-            new_version_cursor_position: 0,
-            show_library_dialog: false,
-            library_dialog_type: super::state::LibraryDialogType::Create,
-            library_search_query: String::new(),
-            library_filter_type: None,
-            // gpui-component input support
-            library_name_input: None,
-            version_name_input: None,
-            // Rename inline state
-            renaming_library_id: None,
-            renaming_version_name: None,
-            rename_library_input: None,
-            rename_version_input: None,
-            rename_library_text: String::new(),
-            rename_version_text: String::new(),
-            // Channel configuration dialog
-            show_channel_config_dialog: false,
-            new_channel_id: String::new(),
-            new_channel_name: String::new(),
-            new_channel_db_path: String::new(),
-            editing_channel_index: None,
-            channel_id_input: None,
-            channel_name_input: None,
-            show_add_channel_input: false,
-            channel_db_path_input: None,
-            new_channel_type: ChannelType::CAN,
-            pending_file_path: None,
-            // Deprecated fields for backward compatibility
-            focused_library_input: None,
-            is_editing_library_name: false,
-            library_input_state: crate::app::state::SimpleDeprecatedInputState::default(),
-            library_focus_handle: None,
-            ime_handler_registered: false,
-            plot_zoom_start: None,
-            plot_zoom_end: None,
-            plot_full_time_min: None,
-            plot_full_time_max: None,
-            is_dragging_zoom: false,
-            plot_pan_start: None,
-            zoom_drag_start_x: None,
-            zoom_drag_current_x: None,
-            hover_point: None,
-            plot_cursor_time: None,
-            plot_cursor_values: std::collections::HashMap::new(),
-            plot_scroll_handle: gpui::ScrollHandle::new(),
-            // File menu dropdown state
-            show_file_menu: false,
-            // Help menu dropdown state
-            show_help_menu: false,
-            show_settings_menu: false,
-            plot_y_min_input: None,
-            plot_y_max_input: None,
-            plot_y_inputs_loaded: None,
-            plot_lanes: Default::default(),
-            selected_row_index: None,
-            expanded_channels: std::collections::HashSet::new(),
-            expanded_messages: std::collections::HashSet::new(),
-            pending_add_channel_focus: None,
-            // Signal sets
-            signal_set_store: crate::library::signal_sets::load_signal_set_store(None),
-            active_signal_set: None,
-            pending_signal_set_name: None,
-            show_save_set_input: false,
-            show_signal_set_dropdown: false,
-            signal_set_name_input: None,
-        };
-
-        // Load startup config (this will reset some state, so do it carefully)
-        // We skip loading config if we're restoring state
-        if !is_maximized {
-            app.load_startup_config();
-        }
-
-        app
     }
 
     pub(crate) fn update_container_height(&mut self, window: &mut Window) {
@@ -1728,28 +1489,6 @@ impl CanViewerApp {
         cx.notify();
     }
 
-    /// Get zebra striping background color
-    ///
-    /// Helper method to determine background color for zebra striping in lists.
-    /// Returns alternating colors based on index parity.
-    pub(crate) fn get_zebra_bg_color(index: usize) -> Rgba {
-        if index.is_multiple_of(2) {
-            rgb(0x09090b) // Zed's dark background (zebra)
-        } else {
-            rgb(0x0c0c0e) // Zed's dark background (base)
-        }
-    }
-
-    /// Show channel input for adding a new channel (inline)
-    pub fn show_add_channel_dialog(&mut self, cx: &mut Context<Self>) {
-        self.show_add_channel_input = true;
-        self.new_channel_id.clear();
-        self.new_channel_name.clear();
-        self.new_channel_db_path.clear();
-        self.editing_channel_index = None;
-        cx.notify();
-    }
-
     /// Hide channel input and clear values
     /// Remove the plot cursor and the values shown for it.
     pub fn clear_plot_cursor(&mut self) {
@@ -2335,58 +2074,6 @@ impl CanViewerApp {
         }
     }
 
-    pub fn cancel_channel_config(&mut self, cx: &mut Context<Self>) {
-        self.show_add_channel_input = false;
-        self.new_channel_id.clear();
-        self.new_channel_name.clear();
-        self.new_channel_db_path.clear();
-
-        // Reset input entities
-        self.channel_id_input = None;
-        self.channel_name_input = None;
-        self.channel_db_path_input = None;
-
-        // Reset type to CAN
-        self.new_channel_type = crate::models::ChannelType::CAN;
-
-        self.editing_channel_index = None;
-        cx.notify();
-    }
-
-    /// Show the library dialog
-    pub fn show_library_dialog(
-        &mut self,
-        dialog_type: super::state::LibraryDialogType,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.library_dialog_type = dialog_type;
-        self.show_library_dialog = true;
-
-        // Initialize input states when dialog is shown
-        if self.library_name_input.is_none() {
-            self.library_name_input =
-                Some(cx.new(|cx| InputState::new(window, cx).placeholder("Enter library name...")));
-        }
-
-        cx.notify();
-    }
-
-    /// Hide the library dialog
-    pub fn hide_library_dialog(&mut self, cx: &mut Context<Self>) {
-        self.show_library_dialog = false;
-        self.new_library_name.clear();
-        self.new_version_name.clear();
-        cx.notify();
-    }
-
-    /// Quick import a database file
-    pub fn quick_import_database(&mut self, cx: &mut Context<Self>) {
-        // TODO: File dialog integration requires fixing GPUI async lifetime issues on Windows
-        self.status_msg =
-            "Quick import temporarily unavailable. Please use library management interface.".into();
-        cx.notify();
-    }
 }
 
 #[cfg(test)]

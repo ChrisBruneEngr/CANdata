@@ -6,7 +6,7 @@ pub mod library;
 use serde::{Deserialize, Serialize};
 
 // Re-export library types
-pub use library::{ChannelDatabase, DatabaseType, LibraryVersion, SignalLibrary};
+pub use library::{ChannelDatabase, LibraryVersion, SignalLibrary};
 
 // Re-export chart types
 pub use chart::{DataPoint, Series};

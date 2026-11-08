@@ -377,7 +377,7 @@ mod tests {
             file_id: 99,
             path: PathBuf::from("/tmp/bad.blf"),
             file_name: "bad.blf".to_string(),
-            start_time: chrono::NaiveDateTime::from_timestamp_opt(0, 0),
+            start_time: chrono::DateTime::from_timestamp(0, 0).map(|dt| dt.naive_utc()),
             start_ns: 0,
             messages: Arc::from([]),
             errors: vec!["Parse error".to_string()],

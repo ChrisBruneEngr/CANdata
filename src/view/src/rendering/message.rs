@@ -8,28 +8,6 @@ use gpui::px;
 use parser::dbc::DbcDatabase;
 use parser::ldf::LdfDatabase;
 
-/// Convert BLF timestamp to seconds based on object_flags
-///
-/// BLF timestamps can be in two units:
-/// - TimeTenMics (0x01): 10 microseconds per tick
-/// - TimeOneNans (0x02): 1 nanosecond per tick (default)
-///
-/// # Arguments
-/// * `timestamp` - The raw timestamp value
-/// * `flags` - The object_flags from the message header
-///
-/// # Returns
-/// The timestamp converted to seconds as f64
-fn convert_timestamp_to_seconds(timestamp: u64, flags: u32) -> f64 {
-    if flags & 0x01 != 0 {
-        // TimeTenMics: 10 microseconds per tick
-        timestamp as f64 / 100_000.0
-    } else {
-        // TimeOneNans (default): 1 nanosecond per tick
-        timestamp as f64 / 1_000_000_000.0
-    }
-}
-
 /// Format an absolute-nanosecond timestamp (as written by
 /// MergedView::from_segments into LogObject.timestamp()) as
 /// "YYYY-MM-DD HH:MM:SS.mmmmmm". `start_time` is ignored — the

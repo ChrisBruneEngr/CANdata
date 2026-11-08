@@ -15,117 +15,6 @@ impl CanViewerApp {
     // All rendering methods are organized in this section for better maintainability
 
     // ========== Message Rendering ==========
-    fn render_message_row(&self, msg: &LogObject, index: usize) -> impl IntoElement {
-        let (time_str, channel_id, msg_type, id_str, dlc_str, data_str, signals_str) = match msg {
-            LogObject::CanMessage(can_msg) => {
-                let timestamp = can_msg.header.object_time_stamp;
-                let time_str = self.get_timestamp_string(timestamp);
-                let data_hex = Self::format_data_hex(&can_msg.data, can_msg.dlc);
-                let actual_data_len = can_msg.data.len().min(can_msg.dlc as usize);
-                let signals = self.extract_can_signals(can_msg.channel, can_msg.id, &can_msg.data);
-
-                (
-                    time_str,
-                    can_msg.channel,
-                    "CAN".to_string(),
-                    format!("0x{:03X}", can_msg.id),
-                    actual_data_len.to_string(),
-                    data_hex,
-                    signals,
-                )
-            }
-            LogObject::LinMessage(lin_msg) => {
-                let timestamp = lin_msg.header.object_time_stamp;
-                let time_str = self.get_timestamp_string(timestamp);
-                let data_hex = Self::format_data_hex(&lin_msg.data, lin_msg.dlc);
-                let actual_data_len = lin_msg.data.len().min(lin_msg.dlc as usize);
-                let signals = self.extract_lin_signals(lin_msg.channel, lin_msg.id, &lin_msg.data);
-
-                (
-                    time_str,
-                    lin_msg.channel,
-                    "LIN".to_string(),
-                    format!("0x{:02X}", lin_msg.id),
-                    actual_data_len.to_string(),
-                    data_hex,
-                    signals,
-                )
-            }
-            _ => (
-                "Unknown".to_string(),
-                0,
-                "Other".to_string(),
-                "-".to_string(),
-                "-".to_string(),
-                "-".to_string(),
-                String::new(),
-            ),
-        };
-
-        let bg_color = Self::get_zebra_bg_color(index);
-
-        div()
-            .flex()
-            .w_full()
-            .min_h(px(24.)) // Slightly taller for better readability
-            .bg(bg_color)
-            .border_b_1()
-            .border_color(rgb(0x2a2a2a)) // Semi-transparent border like Zed
-            .items_center()
-            .text_sm() // Slightly larger text like Zed
-            .text_color(rgb(0xcdd6f4)) // Zed's default text color
-            .hover(|style| style.bg(rgb(0x1f1f1f))) // Subtle hover like Zed
-            .cursor_pointer()
-            .child(
-                div()
-                    .w(px(100.))
-                    .px_3()
-                    .py_1()
-                    .text_color(rgb(0x646473)) // Zed's muted color
-                    .child(time_str),
-            )
-            .child(
-                div()
-                    .w(px(40.))
-                    .px_2()
-                    .py_1()
-                    .text_color(rgb(0x7dcfff)) // Zed's blue
-                    .child(channel_id.to_string()),
-            )
-            .child(
-                div()
-                    .w(px(50.))
-                    .px_2()
-                    .py_1()
-                    .text_color(rgb(0xa6e3a1)) // Zed's green
-                    .child(msg_type),
-            )
-            .child(
-                div()
-                    .w(px(70.))
-                    .px_2()
-                    .py_1()
-                    .text_color(rgb(0xf9e2af)) // Zed's yellow
-                    .child(id_str),
-            )
-            .child(div().w(px(40.)).px_2().py_1().child(dlc_str))
-            .child(
-                div()
-                    .w(px(150.))
-                    .px_2()
-                    .py_1()
-                    .text_color(rgb(0xb4befe)) // Zed's purple
-                    .child(data_str),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .px_2()
-                    .py_1()
-                    .text_color(rgb(0x9399b2)) // Zed's comment color
-                    .child(signals_str),
-            )
-    }
 
     fn render_library_view(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         use crate::ui::views::library_management::render_library_management_view;
@@ -161,8 +50,7 @@ impl CanViewerApp {
                 &self.selected_library_id,
                 &self.selected_version_id, // Add selected version ID
                 &self.app_config.mappings,
-                self.show_library_dialog
-                    && self.library_dialog_type == super::state::LibraryDialogType::Create,
+                self.show_library_dialog,
                 self.show_version_input,
                 &self.new_library_name,
                 &self.new_version_name,
@@ -1476,16 +1364,6 @@ impl CanViewerApp {
         })
     }
 
-    /// Convert BLF timestamp to seconds based on object_flags
-    fn convert_timestamp_to_seconds(timestamp: u64, flags: u32) -> f64 {
-        if flags & 0x01 != 0 {
-            // TimeTenMics: 10 microseconds per tick
-            timestamp as f64 / 100_000.0
-        } else {
-            // TimeOneNans (default): 1 nanosecond per tick
-            timestamp as f64 / 1_000_000_000.0
-        }
-    }
     fn render_config_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
