@@ -150,9 +150,15 @@ Fork and submit a Pull Request. Please ensure your code passes `cargo fmt` and `
 
 ---
 
+## Acknowledgements
+
+CANdata began as a fork of [can-viewer](https://github.com/cantool/can-viewer) by cantool, released under the MIT License. The BLF parser, DBC/LDF parsers and the original GPUI interface come from that project; CANdata has since been substantially reworked. Many thanks to the can-viewer authors for making their work open source.
+
+---
+
 ## License
 
-[MIT License](LICENSE.txt) © 2026 can-viewer
+[MIT License](LICENSE.txt). Copyright © 2026 can-viewer (original work) and © 2026 Chris Brune (CANdata modifications). The original can-viewer copyright and permission notice is kept in [LICENSE.txt](LICENSE.txt), as the MIT License requires.
 
 ---
 
@@ -160,6 +166,6 @@ Fork and submit a Pull Request. Please ensure your code passes `cargo fmt` and `
 
 **Built with ❤️ in Rust**
 
-[Issues](https://github.com/cantool/can-viewer/issues) · [Discussions](https://github.com/cantool/can-viewer/discussions) · admin@ucan.me
+[Issues](https://github.com/ChrisBruneEngr/CANdata/issues)
 
 </div>
