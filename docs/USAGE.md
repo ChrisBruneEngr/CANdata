@@ -113,7 +113,7 @@ Both filters combine with AND when both are set.
 
 ### Empty state
 
-Shows *"No messages loaded. Click '📂 Open BLF' to load a file."*
+Shows *"No log file loaded. Use File → Open BLF... to load a log file."*
 
 ---
 

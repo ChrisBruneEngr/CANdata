@@ -632,7 +632,7 @@ impl CanViewerApp {
                                     div()
                                         .text_lg()
                                         .text_color(rgb(0x6b7280))
-                                        .child("No messages loaded. Click '📂 Open BLF' to load a file.")
+                                        .child("No log file loaded. Use File → Open BLF... to load a log file.")
                                 )
                         )
                     })
