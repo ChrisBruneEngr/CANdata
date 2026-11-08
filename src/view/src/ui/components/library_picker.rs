@@ -337,6 +337,7 @@ fn render_footer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_overlay_not_shown_without_file() {

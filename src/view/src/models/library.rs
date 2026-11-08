@@ -376,7 +376,7 @@ mod tests {
         let mut lib = SignalLibrary::new(
             "test".to_string(),
             "Test Library".to_string(),
-            super::ChannelType::CAN,
+            crate::models::ChannelType::CAN,
         );
 
         lib.add_version(LibraryVersion::new(

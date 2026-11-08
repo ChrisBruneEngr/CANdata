@@ -1124,6 +1124,7 @@ fn render_save_set_input_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
     use crate::models::{ChannelMapping, ChannelType};
 
     /// Helper: an app with one unloaded channel mapping (no DBC loaded).

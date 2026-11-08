@@ -2392,6 +2392,7 @@ impl CanViewerApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
     use crate::models::{DataPoint, Series};
 
     fn make_app_with_selected(signal_id: &str) -> CanViewerApp {

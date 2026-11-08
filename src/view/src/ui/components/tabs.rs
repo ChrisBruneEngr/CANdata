@@ -239,6 +239,7 @@ pub fn simple_tabs<T: Clone + PartialEq + 'static>(tabs: Vec<(String, T)>, selec
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_tab_item_creation() {

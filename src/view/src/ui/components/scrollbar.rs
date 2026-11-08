@@ -175,6 +175,7 @@ pub fn vertical_scrollbar(total_items: usize, current_index: usize) -> Scrollbar
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_scrollbar_config() {
@@ -199,7 +200,7 @@ mod tests {
 
         let h = scrollbar.thumb_height();
         // With 10 items, thumb should be large
-        assert!(h.as_f32() > 200.0);
+        assert!(f32::from(h) > 200.0);
     }
 
     #[test]
@@ -208,7 +209,7 @@ mod tests {
 
         let top = scrollbar.thumb_top();
         // At index 50 (middle), thumb should be in the middle
-        assert!(top.as_f32() > 100.0 && top.as_f32() < 200.0);
+        assert!(f32::from(top) > 100.0 && f32::from(top) < 200.0);
     }
 
     #[test]

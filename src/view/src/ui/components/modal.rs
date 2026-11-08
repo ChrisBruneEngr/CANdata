@@ -245,6 +245,7 @@ pub fn success_modal(title: impl Into<String>) -> Modal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_modal_size() {

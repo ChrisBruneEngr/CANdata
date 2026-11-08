@@ -419,6 +419,7 @@ pub fn is_printable_keystroke(keystroke: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_selection() {

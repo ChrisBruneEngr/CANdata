@@ -320,9 +320,9 @@ mod tests {
     #[test]
     fn test_spacing_consistency() {
         // Spacing should follow a consistent scale
-        assert!(spacing::SM.0 < spacing::MD.0);
-        assert!(spacing::MD.0 < spacing::LG.0);
-        assert!(spacing::LG.0 < spacing::XL.0);
+        assert!(spacing::SM < spacing::MD);
+        assert!(spacing::MD < spacing::LG);
+        assert!(spacing::LG < spacing::XL);
     }
 
     #[test]

@@ -494,6 +494,7 @@ pub fn handle_key_down(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_library_name_validation() {

@@ -145,6 +145,7 @@ pub fn danger_button(label: impl Into<String>) -> Button {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_button_creation() {

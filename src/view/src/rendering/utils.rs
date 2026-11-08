@@ -67,8 +67,10 @@ mod tests {
 
     #[test]
     fn test_format_timestamp_without_start() {
+        // Timestamps are absolute Unix nanoseconds, so 1.5 s after the epoch
+        // prints as a full date and time.
         let result = format_timestamp(1_500_000_000, None);
-        assert_eq!(result, "1.500000");
+        assert_eq!(result, "1970-01-01 00:00:01.500000");
     }
 
     #[test]

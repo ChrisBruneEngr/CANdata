@@ -149,6 +149,7 @@ pub fn simple_dropdown(label: impl Into<String>, items: Vec<impl Into<String>>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_dropdown_item_creation() {

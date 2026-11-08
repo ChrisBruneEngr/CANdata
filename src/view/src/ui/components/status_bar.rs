@@ -811,6 +811,7 @@ pub fn render_status_bar_popovers(app: &CanViewerApp, view: Entity<CanViewerApp>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     #[test]
     fn test_format_count_zero() {

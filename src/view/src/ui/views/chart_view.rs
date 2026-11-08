@@ -1737,6 +1737,7 @@ pub fn format_time_label(t: f64, span: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
 
     /// Verifies that the signal ID format produced by the sidebar matches what
     /// `extract_series_data` will set as `Series.name`. This is a structural

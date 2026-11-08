@@ -101,7 +101,7 @@ mod tests {
     fn test_extract_unique_channels_empty() {
         let messages: Vec<LogObject> = vec![];
         let channels = extract_unique_channels(&messages);
-        assert_eq!(channels, vec![]);
+        assert!(channels.is_empty());
     }
 
     #[test]
