@@ -32,6 +32,20 @@ fn format_abs_ns(timestamp: u64, _start_time: Option<chrono::NaiveDateTime>) -> 
 /// # Returns
 /// A tuple of 5 `Pixels` values representing the widths for:
 /// (time, channel, type, id, dlc) columns
+/// Format a message ID the way the log view shows it: decimal, or hex with a
+/// `0x` prefix and at least three digits.
+pub fn format_message_id(id: u32, decimal: bool) -> String {
+    if decimal {
+        id.to_string()
+    } else {
+        format!("0x{:03X}", id)
+    }
+}
+
+/// Width of the "#" (line number) column, shared by the log header, the
+/// rows and the filter dropdowns that are positioned relative to the columns.
+pub const LINE_NUMBER_COL_WIDTH: f32 = 50.0;
+
 pub fn calculate_column_widths(
     messages: &[LogObject],
     _dbc_channels: &std::collections::HashMap<u16, DbcDatabase>,
@@ -44,12 +58,18 @@ pub fn calculate_column_widths(
     gpui::Pixels,
     gpui::Pixels,
 ) {
-    // Define minimum widths for each column (for header text)
-    let mut max_time_width = 50.0_f32; // "TIME" header
-    let mut max_ch_width = 60.0_f32; // "CH" header with gear icon (CH + ⚙ + padding = ~50px)
-    let mut max_type_width = 50.0_f32; // "TYPE" header
-    let mut max_id_width = 80.0_f32; // "ID" header with gear icon (ID + 10 + ⚙ = ~70px)
-    let mut max_dlc_width = 40.0_f32; // "DLC" header
+    // Minimum widths for each column, so the header text always fits.
+    const MIN_TIME: f32 = 50.0; // "TIME"
+    const MIN_CH: f32 = 60.0; // "CH" + filter gear + padding
+    const MIN_TYPE: f32 = 50.0; // "TYPE"
+    const MIN_ID: f32 = 80.0; // "ID" + "10"/"16" + filter gear + padding
+    const MIN_DLC: f32 = 40.0; // "DLC"
+
+    let mut max_time_width = MIN_TIME;
+    let mut max_ch_width = MIN_CH;
+    let mut max_type_width = MIN_TYPE;
+    let mut max_id_width = MIN_ID;
+    let mut max_dlc_width = MIN_DLC;
 
     // Calculate widths based on ALL messages
     // Use a smarter sampling strategy:
@@ -89,11 +109,13 @@ pub fn calculate_column_widths(
     // full 64-byte payloads (up to ~128 hex chars without separators).
     // Each column also has px_2 padding (16px total), so visible gap between
     // adjacent column text is the sum of half-padding on each side (~8px).
+    // A cap is never below the column's header minimum, so headers are not
+    // clipped. The ID cap fits a 29-bit extended ID (e.g. 0x1FFFFFFF).
     max_time_width = max_time_width.min(200.0);
-    max_ch_width = max_ch_width.min(40.0);
+    max_ch_width = max_ch_width.min(MIN_CH);
     max_type_width = max_type_width.min(70.0);
-    max_id_width = max_id_width.min(60.0);
-    max_dlc_width = max_dlc_width.min(40.0);
+    max_id_width = max_id_width.min(100.0);
+    max_dlc_width = max_dlc_width.min(MIN_DLC);
 
     // Round to integer pixels to ensure consistency across all rows
     // This prevents rounding errors that can cause misalignment
@@ -130,13 +152,7 @@ pub fn get_message_strings(
     start_time: Option<chrono::NaiveDateTime>,
     decimal: bool,
 ) -> (String, u16, String, String, String, String) {
-    let format_id = |id: u32| -> String {
-        if decimal {
-            id.to_string()
-        } else {
-            format!("0x{:03X}", id)
-        }
-    };
+    let format_id = |id: u32| format_message_id(id, decimal);
 
     match msg {
         LogObject::CanMessage(can_msg) => {
@@ -383,7 +399,7 @@ pub fn render_message_row_static_with_widths(
         .child(
             // Line number column — click to select row and copy full row
             div()
-                .w(px(50.))
+                .w(px(LINE_NUMBER_COL_WIDTH))
                 .px_2()
                 .py_1()
                 .flex()
@@ -538,6 +554,14 @@ pub fn render_message_row_static_with_widths(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_format_message_id() {
+        assert_eq!(format_message_id(0x123, false), "0x123");
+        assert_eq!(format_message_id(0x5, false), "0x005");
+        assert_eq!(format_message_id(0x1FFFFFFF, false), "0x1FFFFFFF");
+        assert_eq!(format_message_id(291, true), "291");
+    }
 
     #[test]
     fn test_calculate_column_widths_empty() {

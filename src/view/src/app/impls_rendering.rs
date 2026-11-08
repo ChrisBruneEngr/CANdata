@@ -410,10 +410,13 @@ impl CanViewerApp {
                     .text_xs()
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(rgb(0x9ca3af))
+                    // Each header cell uses the same width and left padding as the
+                    // matching cell in render_message_row_static_with_widths, so the
+                    // header text lines up with the left edge of the data below it.
                     .child(
                         div()
-                            .w(px(60.))
-                            .px_3()
+                            .w(px(crate::rendering::LINE_NUMBER_COL_WIDTH))
+                            .px_2()
                             .py_1()
                             .flex()
                             .items_center()
@@ -516,8 +519,6 @@ impl CanViewerApp {
                                         div()
                                             .cursor_pointer()
                                             .rounded(px(2.))
-                                            .pl_1()  // Left padding only
-                                            .pr_0()  // No right padding
                                             .py_0p5()
                                             .hover(|style| style.bg(rgb(0x374151)))
                                             .on_mouse_down(gpui::MouseButton::Left, {
@@ -535,11 +536,17 @@ impl CanViewerApp {
                                                     .items_center()
                                                     .gap_0p5()
                                                     .child("ID")
+                                                    // Base toggle: a small pill naming the current base.
                                                     .child(
                                                         div()
-                                                            .text_xs()
-                                                            .text_color(rgb(0x6b7280))
-                                                            .child(if id_display_decimal { "10" } else { "16" })
+                                                            .px_1()
+                                                            .rounded(px(3.))
+                                                            .border_1()
+                                                            .border_color(rgb(0x4b5563))
+                                                            .text_size(px(9.))
+                                                            .line_height(px(12.))
+                                                            .text_color(rgb(0xd1d5db))
+                                                            .child(if id_display_decimal { "DEC" } else { "HEX" })
                                                     )
                                             )
                                     )
@@ -892,7 +899,7 @@ impl CanViewerApp {
                 let mut id_list: Vec<u32> = unique_ids.into_iter().collect();
                 id_list.sort();
 
-                let filter_left = 60.0 + f32::from(time_width) + f32::from(ch_width) + f32::from(type_width) + f32::from(id_width) - 40.0;
+                let filter_left = crate::rendering::LINE_NUMBER_COL_WIDTH + f32::from(time_width) + f32::from(ch_width) + f32::from(type_width) + f32::from(id_width) - 40.0;
 
                 eprintln!("=== Filter dropdown rendering ===");
                 eprintln!("  Found {} unique IDs", id_list.len());
@@ -1019,7 +1026,7 @@ impl CanViewerApp {
                                                             });
                                                         }
                                                     })
-                                                    .child(format!("ID: {}", id))
+                                                    .child(crate::rendering::format_message_id(id, id_display_decimal))
                                                     .into_any_element()
                                             })
                                             .collect::<Vec<_>>()
@@ -1050,7 +1057,7 @@ impl CanViewerApp {
                 let mut channel_list: Vec<u16> = unique_channels.into_iter().collect();
                 channel_list.sort();
 
-                let filter_left = 60.0 + f32::from(time_width) + 10.0; // Position after TIME column
+                let filter_left = crate::rendering::LINE_NUMBER_COL_WIDTH + f32::from(time_width) + 10.0; // Position after TIME column
 
                 eprintln!("=== Channel filter dropdown rendering ===");
                 eprintln!("  Found {} unique channels", channel_list.len());
@@ -1227,7 +1234,7 @@ impl CanViewerApp {
             let mut channel_list: Vec<u16> = unique_channels.into_iter().collect();
             channel_list.sort();
 
-            let filter_left = 60.0 + f32::from(time_width) + 10.0; // Position after TIME column
+            let filter_left = crate::rendering::LINE_NUMBER_COL_WIDTH + f32::from(time_width) + 10.0; // Position after TIME column
 
             eprintln!("=== Channel filter dropdown rendering ===");
             eprintln!("  Found {} unique channels", channel_list.len());
