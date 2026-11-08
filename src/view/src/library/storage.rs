@@ -6,14 +6,8 @@ pub fn libraries_base_path(config_file_path: Option<&Path>) -> PathBuf {
     if let Some(dir) = config_file_path.and_then(|p| p.parent()) {
         return dir.join("libraries");
     }
-    // Fall back to a path relative to the executable directory so that
-    // the libraries folder is always found regardless of the working directory.
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            return exe_dir.join("libraries");
-        }
-    }
-    PathBuf::from("libraries")
+    // can-viewer is portable: libraries live next to the executable.
+    crate::config::paths::app_dir().join("libraries")
 }
 
 pub fn build_library_file_subdir(
@@ -139,19 +133,9 @@ impl SignalLibraryStorage {
         Ok(Self { base_path })
     }
 
-    /// 获取基础路径
-    /// 优先使用程序所在目录，如果失败则使用当前目录
+    /// 获取基础路径 (next to the executable; can-viewer is portable)
     fn get_base_path() -> Result<PathBuf> {
-        // 尝试获取可执行文件所在目录
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                return Ok(exe_dir.join("config").join("signal_library"));
-            }
-        }
-
-        // 回退到当前目录
-        let current_dir = std::env::current_dir().context("Failed to get current directory")?;
-        Ok(current_dir.join("config").join("signal_library"))
+        Ok(crate::config::paths::app_dir().join("config").join("signal_library"))
     }
 
     /// 获取库的目录路径

@@ -13,8 +13,6 @@
 
 Fully open source — your ⭐ keeps development going!
 
-[English](README.md) | [中文文档](README_zh.md)
-
 </div>
 
 ---
@@ -47,7 +45,7 @@ A typical session: drop a `.blf` recording onto the window, activate a DBC datab
 **Multi-file & UX**
 - 📁 **Merged timeline** — load multiple BLF files in parallel; messages sorted by absolute timestamp (`measurement_start_time + object_time_stamp`), so recordings from different sessions line up
 - 🖱️ **Drag-and-drop loading** — drop `.blf` files or a folder onto the window; macOS Dock-icon drop also supported; large files (> 1 GB) trigger a confirmation prompt
-- 🔗 **LAN sharing** — share signal libraries over HTTP within your local network, one-click import on the receiving side
+- 📦 **Library export / import** — move a signal library, including its DBC/LDF files, to another machine as one `.cvlib` file
 - 🌐 **Cross-platform** — Windows, macOS, Linux
 
 ---
@@ -102,9 +100,9 @@ Drop `demo.blf` onto the window, activate `demo.dbc` on channel 1, then switch t
 
 Drop semantics: only `.blf` is accepted via drag (use File menu for `.bin`); folders are expanded one level deep; > 1 GB total triggers a confirmation; mid-load drops cancel the in-flight load and queue the new one.
 
-Configuration is auto-saved to `multi_channel_config.json` next to the binary.
+can-viewer is portable: configuration (`multi_channel_config.json`), signal sets (`signal_sets.json`) and library files (`libraries/`) are all saved next to the binary. It makes no network connections.
 
-📖 **Full user guide:** [docs/USAGE.md](docs/USAGE.md) — window layout, log/plot views, library management, signal sets, LAN sharing, keyboard shortcuts, troubleshooting.
+📖 **Full user guide:** [docs/USAGE.md](docs/USAGE.md) — window layout, log/plot views, library management, signal sets, library export/import, keyboard shortcuts, troubleshooting.
 
 ---
 
@@ -117,7 +115,7 @@ Configuration is auto-saved to `multi_channel_config.json` next to the binary.
 - ✅ GPUI desktop UI (GPU-accelerated, cross-platform)
 - ✅ Message filtering (by ID and channel) and signal decoding
 - ✅ Signal waveform plot — zoom, hover, absolute time, live plot on selection, no-data placeholders
-- ✅ Multi-version signal library management (create / activate / share via LAN, one-click import)
+- ✅ Multi-version signal library management (create / activate / export & import as `.cvlib` files)
 - ✅ Signal sets — named channel+message+signal collections, batch-apply to plot
 - ✅ Multi-file loading with merged timeline (Open BLF... replaces, Open Multiple BLF... appends)
 - ✅ Drag-and-drop BLF loading (in-window + macOS Dock-icon), folder expansion, large-file guard

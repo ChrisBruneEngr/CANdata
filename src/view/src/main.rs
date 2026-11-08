@@ -13,7 +13,6 @@ mod models;
 mod platform;
 mod plot_lanes;
 mod rendering;
-pub mod server;
 mod ui;
 
 // Import rendering utilities and app types

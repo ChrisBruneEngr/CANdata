@@ -131,12 +131,7 @@ pub fn signal_set_store_path(config_file_path: Option<&Path>) -> PathBuf {
     if let Some(dir) = config_file_path.and_then(|p| p.parent()) {
         return dir.join("signal_sets.json");
     }
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            return exe_dir.join("signal_sets.json");
-        }
-    }
-    PathBuf::from("signal_sets.json")
+    crate::config::paths::app_dir().join("signal_sets.json")
 }
 
 /// Load the store from disk. Missing file → empty store.

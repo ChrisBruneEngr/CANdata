@@ -6,11 +6,11 @@
 use std::path::PathBuf;
 
 /// Default configuration file name
-pub const DEFAULT_CONFIG_FILE: &str = "multi_channel_config.json";
+pub const DEFAULT_CONFIG_FILE: &str = super::paths::CONFIG_FILE_NAME;
 
-/// Get the default configuration file path
+/// Get the default configuration file path (next to the executable)
 pub fn get_default_config_path() -> PathBuf {
-    PathBuf::from(DEFAULT_CONFIG_FILE)
+    super::paths::config_file()
 }
 
 /// Format a configuration load error message
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn test_get_default_config_path() {
         let path = get_default_config_path();
-        assert_eq!(path, PathBuf::from(DEFAULT_CONFIG_FILE));
+        assert_eq!(path, super::super::paths::app_dir().join(DEFAULT_CONFIG_FILE));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! StatusBar component
 //!
-//! Renders the bottom status bar with file info (left) and server/library
+//! Renders the bottom status bar with file info (left) and library
 //! status (right). Single 24px row.
 
 use crate::app::{AppView, CanViewerApp};
@@ -134,54 +134,6 @@ fn render_blf_progress_segment(app: &CanViewerApp) -> Option<impl IntoElement> {
         colors::WARNING
     };
     Some(div().text_color(color).child(text))
-}
-
-/// Render the server status segment (right side, segment 1).
-fn render_server_segment(app: &CanViewerApp, view: Entity<CanViewerApp>) -> impl IntoElement {
-    let running = app.server_handle.is_some();
-    let url = app.share_url().map(|s| s.to_string()).unwrap_or_default();
-    let view_for_click = view.clone();
-    let url_for_copy = url.clone();
-    let dot_color = if running {
-        colors::SUCCESS
-    } else {
-        colors::DISABLED
-    };
-    let label = if running {
-        format!("Server ON {}", url)
-    } else {
-        "Share disabled".to_string()
-    };
-
-    div()
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .cursor_pointer()
-        .when(running, |el| el.hover(|s| s.bg(colors::SURFACE0)))
-        .child(div().w(px(8.)).h(px(8.)).rounded_full().bg(dot_color))
-        .child(div().text_color(colors::TEXT_MUTED).child(label))
-        .when(running, |el| {
-            el.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                cx.stop_propagation();
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(url_for_copy.clone()));
-                view_for_click.update(cx, |app, cx| {
-                    app.share_url_copied = true;
-                    cx.notify();
-                    // Reset after 2s
-                    cx.spawn(async move |this, cx| {
-                        smol::Timer::after(std::time::Duration::from_secs(2)).await;
-                        if let Some(entity) = this.upgrade() {
-                            entity.update(cx, |app, cx| {
-                                app.share_url_copied = false;
-                                cx.notify();
-                            });
-                        }
-                    })
-                    .detach();
-                });
-            })
-        })
 }
 
 /// Render the library badge segment (right side, segment 3).
@@ -817,14 +769,12 @@ pub fn render_status_bar(app: &CanViewerApp, view: Entity<CanViewerApp>) -> impl
                         .child(format!("LDF: {}", app.ldf_channels.len())),
                 ),
         )
-        // Right side: server | status_msg | lib badge | files btn | view name (separated by vertical bars)
+        // Right side: status_msg | lib badge | files btn | view name (separated by vertical bars)
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap(spacing::SM)
-                .child(render_server_segment(app, view.clone()))
-                .child(render_separator())
                 .when_some(render_status_msg_segment(app), |el, status_seg| {
                     el.child(status_seg).child(render_separator())
                 })

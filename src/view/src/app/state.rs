@@ -281,16 +281,6 @@ pub struct CanViewerApp {
     /// initialization in impls_rendering.rs render loop).
     pub signal_set_name_input: Option<gpui::Entity<gpui_component::input::InputState>>,
 
-    // Server state
-    pub server_handle: Option<crate::server::ServerHandle>,
-    pub show_share_dialog: bool,
-    pub share_url_copied: bool,
-    pub copied_channel_id: Option<u16>,
-    pub show_import_dialog: bool,
-    pub import_url: String,
-    pub import_status: Option<String>,
-    pub import_url_input: Option<Entity<InputState>>,
-    pub pending_import: Option<std::sync::mpsc::Receiver<Result<Vec<crate::models::SignalLibrary>, String>>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -461,16 +451,6 @@ impl CanViewerApp {
             show_save_set_input: false,
             show_signal_set_dropdown: false,
             signal_set_name_input: None,
-            // Server state
-            server_handle: None,
-            show_share_dialog: false,
-            share_url_copied: false,
-            copied_channel_id: None,
-            show_import_dialog: false,
-            import_url: String::new(),
-            import_status: None,
-            import_url_input: None,
-            pending_import: None,
         }
     }
 

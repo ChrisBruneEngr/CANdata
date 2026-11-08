@@ -5,16 +5,11 @@
 use crate::app::CanViewerApp;
 use crate::AppConfig;
 use gpui::Context;
-use std::path::PathBuf;
 
 /// Load configuration at startup
 pub fn load_startup_config(app: &mut CanViewerApp) {
-    let exe_config = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("multi_channel_config.json")));
-    let path = exe_config
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| PathBuf::from("multi_channel_config.json"));
+    // can-viewer is portable: the config lives next to the executable only.
+    let path = crate::config::paths::config_file();
     if path.exists() {
         app.status_msg = "Found saved config, loading...".into();
         if let Ok(content) = std::fs::read_to_string(&path) {
@@ -122,12 +117,10 @@ pub fn load_config(app: &mut CanViewerApp, _cx: &mut Context<CanViewerApp>) {
 
 /// Save configuration to file
 pub fn save_config(app: &CanViewerApp, _cx: &mut Context<CanViewerApp>) {
-    let config_path = app.config_file_path.clone().unwrap_or_else(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("multi_channel_config.json")))
-            .unwrap_or_else(|| PathBuf::from("multi_channel_config.json"))
-    });
+    let config_path = app
+        .config_file_path
+        .clone()
+        .unwrap_or_else(crate::config::paths::config_file);
     if let Ok(content) = serde_json::to_string_pretty(&app.app_config) {
         if std::fs::write(&config_path, content).is_ok() {
             eprintln!("✅ Configuration saved to: {}", config_path.display());

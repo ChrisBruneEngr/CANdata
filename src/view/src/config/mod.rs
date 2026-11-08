@@ -2,5 +2,4 @@
 
 mod constants;
 mod io;
-mod startup;
-
+pub mod paths;

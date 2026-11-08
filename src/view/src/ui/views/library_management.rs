@@ -37,8 +37,6 @@ pub fn render_library_management_view(
     new_channel_db_path: &str, // Add this parameter to avoid reading entity in render
     new_channel_type: crate::models::ChannelType, // Add channel type parameter
     editing_channel_index: Option<usize>, // Row being edited, if any
-    is_sharing: bool, // Whether the share server is currently running
-    copied_channel_id: Option<u16>,
     active_library_id: Option<&str>,
     active_version_name: Option<&str>,
     renaming_library_id: Option<&str>,
@@ -63,7 +61,6 @@ pub fn render_library_management_view(
             focused_input,
             library_cursor_pos,
             library_name_input,
-            is_sharing,
             renaming_library_id,
             rename_library_input,
             active_library_id,
@@ -116,8 +113,6 @@ pub fn render_library_management_view(
             new_channel_db_path,
             new_channel_type,
             editing_channel_index,
-            is_sharing,
-            copied_channel_id,
             cx,
         ))
 }
@@ -132,7 +127,6 @@ fn render_left_column(
     _focused_input: &Option<String>,
     _cursor_pos: usize,
     library_name_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
-    is_sharing: bool,
     renaming_library_id: Option<&str>,
     rename_library_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
     active_library_id: Option<&str>,
@@ -221,7 +215,7 @@ fn render_left_column(
                     list.child(render_add_library_button(cx))
                 }),
         )
-        // Bottom action bar: Share & Import
+        // Bottom action bar: Export & Import library files
         .child(
             div()
                 .flex()
@@ -232,26 +226,22 @@ fn render_left_column(
                 .border_t_1()
                 .border_color(rgb(0x252525))
                 .child({
+                    let can_export = selected_library_id.is_some();
                     div()
                         .flex_1()
                         .px_2()
                         .py_1()
                         .text_xs()
-                        .text_color(if is_sharing { rgb(0xa6e3a1) } else { rgb(0xcdd6f4) })
+                        .text_color(if can_export { rgb(0xcdd6f4) } else { rgb(0x6c7086) })
                         .bg(rgb(0x1e1e2e))
                         .rounded(px(4.0))
                         .cursor_pointer()
                         .text_center()
                         .hover(|s| s.bg(rgb(0x313244)))
                         .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, _, cx| {
-                            if this.server_handle.is_some() {
-                                this.stop_share_server();
-                            } else {
-                                this.start_share_server();
-                            }
-                            cx.notify();
+                            this.export_selected_library(cx);
                         }))
-                        .child(if is_sharing { "📡 Stop Share" } else { "📡 Share" })
+                        .child("📤 Export")
                 })
                 .child(
                     div()
@@ -266,13 +256,7 @@ fn render_left_column(
                         .text_center()
                         .hover(|s| s.bg(rgb(0x313244)))
                         .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, _, cx| {
-                            this.show_import_dialog = !this.show_import_dialog;
-                            if this.show_import_dialog {
-                                this.import_status = None;
-                            } else {
-                                this.import_url_input = None;
-                            }
-                            cx.notify();
+                            this.import_library_file(cx);
                         }))
                         .child("📥 Import"),
                 ),
@@ -940,8 +924,6 @@ fn render_right_column(
     new_channel_db_path: &str, // Add this parameter to avoid reading entity in render
     new_channel_type: crate::models::ChannelType, // Use the new channel type being added
     editing_channel_index: Option<usize>, // Row being edited, if any
-    is_sharing: bool,
-    copied_channel_id: Option<u16>,
     cx: &mut Context<crate::CanViewerApp>,
 ) -> impl IntoElement {
     // 找到选中的库和版本
@@ -1149,7 +1131,7 @@ fn render_right_column(
                                         cx,
                                     ));
                                 } else {
-                                    list = list.child(render_channel_item(index, channel_db, is_sharing, copied_channel_id, cx));
+                                    list = list.child(render_channel_item(index, channel_db, cx));
                                 }
                             }
                             // 显示输入框（如果show_add_channel_input为true）
@@ -1176,8 +1158,6 @@ fn render_right_column(
 fn render_channel_item(
     index: usize,
     channel_db: &ChannelDatabase,
-    is_sharing: bool,
-    copied_channel_id: Option<u16>,
     cx: &mut Context<crate::CanViewerApp>,
 ) -> impl IntoElement {
     let path = channel_db.database_path.clone();
@@ -1188,9 +1168,8 @@ fn render_channel_item(
 
     // Copy channel_id to avoid borrow issues in closure
     let channel_id = channel_db.channel_id;
-    let is_http = path.starts_with("http://") || path.starts_with("https://");
-    let show_copy = is_sharing && is_http;
-    let is_copied = copied_channel_id == Some(channel_id);
+    // Remote (http/https) database paths are not supported; flag them in red.
+    let is_remote = crate::library::is_remote_path(&path);
 
     div()
         .id(format!("ch-item-{}", channel_id))
@@ -1247,9 +1226,11 @@ fn render_channel_item(
             div().flex_1().min_w_0().child(
                 div()
                     .text_sm()
-                    .text_color(if is_http { rgb(0x89b4fa) } else { rgb(0x646473) })
+                    .text_color(if is_remote { rgb(0xf38ba8) } else { rgb(0x646473) })
                     .truncate()
-                    .child({
+                    .child(if is_remote {
+                        format!("⚠ Remote paths are not supported: {}", path)
+                    } else {
                         let normalized = path.replace('\\', "/");
                         if let Some(idx) = normalized.find("libraries/") {
                             normalized[idx..].to_string()
@@ -1259,43 +1240,6 @@ fn render_channel_item(
                     }),
             ),
         )
-        .when(show_copy, |this| {
-            let url_for_copy = path.clone();
-            this.child(
-                div()
-                    .id(format!("ch-copy-{}", channel_id))
-                    .px_2()
-                    .py_1()
-                    .bg(if is_copied { rgb(0x3a5a40) } else { rgb(0x252535) })
-                    .rounded(px(3.))
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(if is_copied { rgb(0xa6e3a1) } else { rgb(0x6c7086) })
-                    .hover(|s| s.bg(rgb(0x313244)).text_color(rgb(0xcdd6f4)))
-                    .flex_shrink_0()
-                    .child(if is_copied { "✓" } else { "📋" })
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(move |this, _event, _window, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(url_for_copy.clone()));
-                            this.copied_channel_id = Some(channel_id);
-                            cx.notify();
-                            cx.spawn(async move |this, cx| {
-                                smol::Timer::after(std::time::Duration::from_secs(2)).await;
-                                if let Some(entity) = this.upgrade() {
-                                    entity.update(cx, |app, cx| {
-                                        if app.copied_channel_id == Some(channel_id) {
-                                            app.copied_channel_id = None;
-                                            cx.notify();
-                                        }
-                                    });
-                                }
-                            })
-                            .detach();
-                        }),
-                    ),
-            )
-        })
         .child(
             // Edit button
             div()

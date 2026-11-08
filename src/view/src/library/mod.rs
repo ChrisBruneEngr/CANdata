@@ -3,6 +3,7 @@
 //! 提供信号库的CRUD操作、版本管理和验证功能
 
 mod storage;
+pub mod bundle;
 pub mod signal_sets;
 
 pub use storage::{
@@ -129,6 +130,15 @@ impl LibraryManager {
         let library = SignalLibrary::new(id.clone(), name, channel_type);
         self.libraries.push(library);
         Ok(self.find_library(&id).unwrap())
+    }
+
+    /// Add an already-built library (e.g. one read from a `.cvlib` file).
+    pub fn add_library(&mut self, library: SignalLibrary) -> Result<(), String> {
+        if self.find_library(&library.id).is_some() {
+            return Err(format!("Library '{}' already exists", library.name));
+        }
+        self.libraries.push(library);
+        Ok(())
     }
 
     /// 重命名库 — 返回新生成的 library ID
@@ -339,6 +349,9 @@ impl LibraryManager {
 
     /// 验证数据库文件
     pub fn validate_database(&self, path: &str) -> Result<DatabaseValidation, String> {
+        if is_remote_path(path) {
+            return Err(remote_path_error(path));
+        }
         let path_obj = PathBuf::from(path);
 
         // 检查文件是否存在
@@ -425,6 +438,9 @@ impl LibraryManager {
     /// loads its database correctly. The passed `channel_type` is used only
     /// as a fallback when the extension is ambiguous.
     pub fn load_database(&self, path: &str, channel_type: ChannelType) -> Result<Database, String> {
+        if is_remote_path(path) {
+            return Err(remote_path_error(path));
+        }
         let detected = detect_channel_type_from_path(path);
         let effective = detected.unwrap_or(channel_type);
         match effective {
@@ -464,6 +480,23 @@ impl LibraryManager {
 pub enum Database {
     Dbc(DbcDatabase),
     Ldf(LdfDatabase),
+}
+
+/// True when a database path is an http(s) URL.
+///
+/// can-viewer only reads databases from local files; remote paths (left over
+/// from the removed LAN sharing feature) are treated as errors.
+pub fn is_remote_path(path: &str) -> bool {
+    let lowered = path.trim().to_ascii_lowercase();
+    lowered.starts_with("http://") || lowered.starts_with("https://")
+}
+
+/// Error message for a remote (http/https) database path.
+pub fn remote_path_error(path: &str) -> String {
+    format!(
+        "Remote database paths are not supported: {}. Re-add the database from a local file in the Library view.",
+        path.trim()
+    )
 }
 
 /// Detect `ChannelType` from a database file's extension.

@@ -2,8 +2,6 @@
 
 A practical manual for using can-viewer — the BLF log viewer, signal plotter, and DBC/LDF library manager.
 
-> **Other languages:** [中文使用文档](USAGE_zh.md)
-
 ---
 
 ## Table of Contents
@@ -14,7 +12,7 @@ A practical manual for using can-viewer — the BLF log viewer, signal plotter, 
 4. [Log View](#log-view)
 5. [Plot View](#plot-view)
 6. [Library Management](#library-management)
-7. [Server Sharing & Import](#server-sharing--import)
+7. [Export & Import Libraries](#export--import-libraries)
 8. [Configuration View](#configuration-view)
 9. [Status Bar Reference](#status-bar-reference)
 10. [Keyboard Shortcuts](#keyboard-shortcuts)
@@ -47,13 +45,13 @@ For a fresh install with no libraries configured yet, go to **Library** (top bar
 │                                                            │
 │                                                            │
 ├────────────────────────────────────────────────────────────┤
-│ Log Plot │ 📂 file │ msgs │ DBC │ LDF │  Server │ 📚 lib │ log mode │ ← Status bar (24px)
+│ Log Plot │ 📂 file │ msgs │ DBC │ LDF │ status │ 📚 lib │ log mode │ ← Status bar (24px)
 └────────────────────────────────────────────────────────────┘
 ```
 
 - **Top bar** — File menu, Library button, window controls (Win/Linux).
 - **Content area** — switches between Log / Plot / Library / Config.
-- **Status bar** — file info, message/DBC/LDF counts, server status, active library, view name, and the Log ⇄ Plot toggle.
+- **Status bar** — file info, message/DBC/LDF counts, status messages, active library, view name, and the Log ⇄ Plot toggle.
 
 ---
 
@@ -213,7 +211,9 @@ Switch via the **Library** button in the top bar. Three-column layout: libraries
 5. Click **Select File…** and pick a `.dbc` (CAN) or `.ldf` (LIN) file.
 6. Click ✓ to save or ✕ to cancel. **Enter** saves, **Escape** cancels.
 
-The database file is copied into `<config_dir>/libraries/<lib>/<version>/<channel>/` so the original can be moved or deleted.
+The database file is copied into `libraries/<lib>/<version>/<channel>/` next to the executable, so the original can be moved or deleted.
+
+Database paths must be local files. A path that starts with `http://` or `https://` is shown in red and won't load. Re-add that channel from a local file.
 
 ### Activate a version
 
@@ -237,29 +237,27 @@ Click **Apply to Plot** at the top of the right column to write the current vers
 
 ---
 
-## Server Sharing & Import
+## Export & Import Libraries
 
-Share your library database files with other machines on the same LAN, or import a shared library.
+Move a library to another machine as a single `.cvlib` file. can-viewer makes no network connections.
 
-### Start sharing
+### Export
 
-1. In the **Library** view, click **📡 Share** (bottom-left).
-2. The app binds `0.0.0.0:0` (OS-assigned port) and exposes:
-   - `GET /api/health` — unauthenticated health check.
-   - `GET /api/libraries?token=...` — library list as JSON, with `database_path` rewritten to per-channel download URLs.
-   - `GET /api/libraries/{lib_id}/versions/{ver}/files/{channel_id}?token=...` — streams the DBC/LDF file.
-3. A dialog appears with the **LAN URL** (preferred `192.168.x.x` / `10.x.x.x` / `172.16-31.x.x` address) and a local `127.0.0.1` fallback.
-4. **📋 Copy** writes the URL to the clipboard. **🌐 Open** opens it in the system browser.
-5. The server stops when you click **📡 Stop Share**, close the app, or the `ServerHandle` is dropped.
+1. In the **Library** view, select the library in the left column.
+2. Click **📤 Export** (bottom-left).
+3. Choose where to save. The default name is `<library name>.cvlib`.
 
-The token is a random opaque string validated on every request — keep it in the URL when sharing.
+The file holds every version and channel of the library **and a copy of each DBC/LDF file**, so it is all the other machine needs. The export fails if any channel's database file is missing or uses a remote (`http://`) path.
 
-### Import on another machine
+### Import
 
 1. In the **Library** view, click **📥 Import**.
-2. Paste the shared URL (`http://...?token=...`) into the input.
-3. Click **Import**. The app fetches the library list and downloads each channel database to a local `libraries/` subdirectory.
-4. On completion, the imported libraries appear in your library manager and the dialog closes. Duplicate names get `_1`, `_2` suffixes to avoid clobbering existing entries.
+2. Pick a `.cvlib` file.
+3. The database files are copied into the local `libraries/` folder, the library appears in the list, and it is selected. If a library with the same name already exists, the imported one gets a `_1`, `_2`, … suffix; nothing existing is overwritten.
+
+### File format
+
+A `.cvlib` file is pretty-printed JSON: `format` (`"can-viewer-library"`), `format_version` (currently `1`), `exported_at`, and `libraries` with each version's channels. Each database file's bytes are stored base64-encoded, so files in any text encoding come back exactly as they were.
 
 ---
 
@@ -295,7 +293,6 @@ The 24-px bar at the bottom of the window.
 
 | Segment | Description |
 |---|---|
-| **Server** | Green dot + `Server ON <url>` when running, gray dot + `Share disabled` when stopped. Click to copy the URL to the clipboard. |
 | **status_msg** | Transient status text (Loading…, Ready, errors). Truncated if long. |
 | **Library badge** | `📚 <lib_name> / <version>` when a library version is active. |
 | **Cancel** | `❌ Cancel` shown only during loading. Click to abort pending loads. |
@@ -347,7 +344,7 @@ The minimize / maximize / close buttons in the top-right are mouse-only.
 
 ### Saved to disk (`multi_channel_config.json`)
 
-Located next to the executable (or the current working directory as a fallback). Pretty-printed JSON. Saved on:
+can-viewer is portable: everything it saves lives in the folder that holds the executable, never in the working directory or your user profile. Copy that folder to move the whole setup. Pretty-printed JSON. Saved on:
 
 - Create / delete library
 - Add / delete version
@@ -355,7 +352,7 @@ Located next to the executable (or the current working directory as a fallback).
 - Activate / deactivate version
 - Apply to Plot
 - Manual **Save Config** in the Configuration view
-- After a successful LAN import
+- After importing a `.cvlib` library file
 
 Contents:
 
@@ -365,7 +362,17 @@ Contents:
 
 ### Library files on disk
 
-DBC/LDF files are copied into `<config_dir>/libraries/<lib>/<version>/<channel>/` when you add a channel. On macOS the config dir is `~/Library/Application Support/can-viewer`; on Linux it's `~/.config/can-viewer`; on Windows it's `%APPDATA%/can-viewer`.
+DBC/LDF files are copied into `libraries/<lib>/<version>/<channel>/` when you add a channel or import a library. Saved plot signal sets are in `signal_sets.json`. All of these sit next to the executable:
+
+```
+<exe folder>/
+├── can-viewer.exe
+├── multi_channel_config.json
+├── signal_sets.json
+└── libraries/
+```
+
+Because of this, install can-viewer somewhere you can write to (the default per-user install is fine; `Program Files` for all users is not).
 
 ### In-memory only (not persisted)
 
@@ -390,15 +397,14 @@ The file loaded but had parse errors. Click the segment to open the Loaded Files
 - If the **Select signal library** overlay appears, pick a version or click ✕ to dismiss.
 - Click **Load** next to unloaded channels in the signal sidebar to load their library version.
 
-### Server URL shows `127.0.0.1` instead of a LAN IP
-
-The app couldn't detect a preferred LAN IP (192.168/10./172.16-31). Check that you're on a network with a routable LAN address. The local URL still works on the same machine.
-
 ### Import fails
 
-- Make sure the URL includes the `?token=...` parameter.
-- The sharing machine must be reachable on the same LAN and the server must be running.
-- Check the status message at the bottom for the import result.
+- The file must be a `.cvlib` file exported by can-viewer. A newer format version than this build understands is rejected.
+- Check the status message at the bottom for the reason.
+
+### A channel path is red: "Remote paths are not supported"
+
+The channel points at an `http://` or `https://` URL, probably left over from the old LAN sharing feature. can-viewer only reads local files. Edit the channel (✎) and pick a local `.dbc`/`.ldf` file.
 
 ### Changes don't persist across restarts
 

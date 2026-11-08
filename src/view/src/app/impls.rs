@@ -160,16 +160,6 @@ impl CanViewerApp {
             show_save_set_input: false,
             show_signal_set_dropdown: false,
             signal_set_name_input: None,
-            // Server state
-            server_handle: None,
-            show_share_dialog: false,
-            share_url_copied: false,
-            copied_channel_id: None,
-            show_import_dialog: false,
-            import_url: String::new(),
-            import_status: None,
-            import_url_input: None,
-            pending_import: None,
         };
 
         // 🔧 启动时加载配置
@@ -179,14 +169,8 @@ impl CanViewerApp {
     }
 
     fn load_startup_config(&mut self) {
-        // Prefer a config file next to the executable so it is always found
-        // regardless of the working directory.
-        let exe_config = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("multi_channel_config.json")));
-        let path = exe_config
-            .filter(|p| p.exists())
-            .unwrap_or_else(|| PathBuf::from("multi_channel_config.json"));
+        // can-viewer is portable: the config lives next to the executable only.
+        let path = crate::config::paths::config_file();
         if path.exists() {
             self.status_msg = "Found saved config, loading...".into();
             if let Ok(content) = std::fs::read_to_string(&path) {
@@ -646,14 +630,12 @@ impl CanViewerApp {
     /// Save the current configuration to file.
     ///
     /// Uses the existing config file path when available. On first save, stores
-    /// the config next to the executable so it is location-independent.
+    /// the config next to the executable (can-viewer is portable).
     pub(crate) fn save_config(&self, cx: &mut Context<Self>) {
-        let config_path = self.config_file_path.clone().unwrap_or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.join("multi_channel_config.json")))
-                .unwrap_or_else(|| PathBuf::from("multi_channel_config.json"))
-        });
+        let config_path = self
+            .config_file_path
+            .clone()
+            .unwrap_or_else(crate::config::paths::config_file);
         if let Ok(content) = serde_json::to_string_pretty(&self.app_config) {
             if std::fs::write(&config_path, content).is_ok() {
                 cx.notify();
@@ -930,16 +912,6 @@ impl CanViewerApp {
             show_save_set_input: false,
             show_signal_set_dropdown: false,
             signal_set_name_input: None,
-            // Server state
-            server_handle: None,
-            show_share_dialog: false,
-            share_url_copied: false,
-            copied_channel_id: None,
-            show_import_dialog: false,
-            import_url: String::new(),
-            import_status: None,
-            import_url_input: None,
-            pending_import: None,
         };
 
         // Load startup config (this will reset some state, so do it carefully)
@@ -1636,6 +1608,10 @@ impl CanViewerApp {
             ));
         }
 
+        if crate::library::is_remote_path(path) {
+            return Err(format!("❌ {} ({})", crate::library::remote_path_error(path), context));
+        }
+
         // Check if file exists
         if !std::path::Path::new(path).exists() {
             return Err(format!(
@@ -1961,6 +1937,13 @@ impl CanViewerApp {
 
         if self.new_channel_db_path.trim().is_empty() {
             self.status_msg = "Please select a database file or enter a path".into();
+            cx.notify();
+            return;
+        }
+
+        if crate::library::is_remote_path(&self.new_channel_db_path) {
+            self.status_msg =
+                crate::library::remote_path_error(&self.new_channel_db_path).into();
             cx.notify();
             return;
         }
