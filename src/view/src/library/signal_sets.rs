@@ -121,6 +121,7 @@ pub fn layout_from_set(
                 signals: lane.entries.iter().map(|e| signal_id(e, channel_type)).collect(),
                 y_range: lane.y_range,
                 show_points: lane.show_points,
+                ..Default::default()
             })
             .collect(),
     )
@@ -319,6 +320,7 @@ mod tests {
                     signals: vec!["CAN:1:256:A".into(), "CAN:1:256:B".into()],
                     y_range: Some((-5.0, 100.5)),
                     show_points: false,
+                    ..Default::default()
                 },
                 PlotLane::default(),
                 PlotLane { signals: vec!["CAN:1:256:A".into()], ..Default::default() },

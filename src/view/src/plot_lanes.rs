@@ -12,6 +12,10 @@ pub struct PlotLane {
     pub y_range: Option<(f64, f64)>,
     /// Draw a dot at each sample as well as the line.
     pub show_points: bool,
+    /// The range Auto picked from the data that was visible when it was worked out.
+    /// It stays put while zooming and panning, and is worked out again when the
+    /// lane's signals change or Auto is turned back on.
+    pub auto_y_range: Option<(f64, f64)>,
 }
 
 impl Default for PlotLane {
@@ -20,6 +24,7 @@ impl Default for PlotLane {
             signals: Vec::new(),
             y_range: None,
             show_points: true,
+            auto_y_range: None,
         }
     }
 }
@@ -79,6 +84,7 @@ impl LaneLayout {
     pub fn delete_selected(&mut self) {
         if self.lanes.len() == 1 {
             self.lanes[0].signals.clear();
+            self.lanes[0].auto_y_range = None;
             return;
         }
         self.lanes.remove(self.selected);
@@ -114,6 +120,7 @@ impl LaneLayout {
         match self.lanes.get_mut(lane) {
             Some(lane) if !lane.signals.iter().any(|s| s == signal) => {
                 lane.signals.push(signal.to_string());
+                lane.auto_y_range = None;
                 true
             }
             _ => false,
@@ -123,7 +130,11 @@ impl LaneLayout {
     /// Remove a signal from one lane, leaving any other lanes that plot it alone.
     pub fn remove_signal(&mut self, lane: usize, signal: &str) {
         if let Some(lane) = self.lanes.get_mut(lane) {
+            let before = lane.signals.len();
             lane.signals.retain(|s| s != signal);
+            if lane.signals.len() != before {
+                lane.auto_y_range = None;
+            }
         }
     }
 
@@ -148,7 +159,11 @@ impl LaneLayout {
     /// lane. Several at once replace any empty lanes and get a lane each.
     pub fn sync_with_selection(&mut self, selected_signals: &[String]) {
         for lane in &mut self.lanes {
+            let before = lane.signals.len();
             lane.signals.retain(|s| selected_signals.contains(s));
+            if lane.signals.len() != before {
+                lane.auto_y_range = None;
+            }
         }
 
         let new_signals: Vec<&String> = selected_signals
@@ -160,7 +175,9 @@ impl LaneLayout {
             [] => {}
             [signal] => {
                 let signal = (*signal).clone();
-                self.lanes[self.selected].signals.push(signal);
+                let lane = &mut self.lanes[self.selected];
+                lane.signals.push(signal);
+                lane.auto_y_range = None;
             }
             signals => {
                 let added: Vec<PlotLane> = signals
@@ -496,6 +513,33 @@ mod tests {
     #[test]
     fn a_window_covering_all_the_data_does_not_pan() {
         assert_eq!(pan_time_range(0.0, 100.0, 10.0, 0.0, 100.0), (0.0, 100.0));
+    }
+
+    #[test]
+    fn changing_a_lanes_signals_forgets_its_auto_range() {
+        let mut l = layout(&[&["a"], &["b"]], 0);
+        for lane in &mut l.lanes {
+            lane.auto_y_range = Some((0.0, 1.0));
+        }
+        l.add_signal(0, "c");
+        assert_eq!(l.lanes[0].auto_y_range, None);
+        assert_eq!(l.lanes[1].auto_y_range, Some((0.0, 1.0)));
+
+        l.lanes[0].auto_y_range = Some((0.0, 1.0));
+        l.remove_signal(1, "b");
+        assert_eq!(l.lanes[0].auto_y_range, Some((0.0, 1.0)));
+        assert_eq!(l.lanes[1].auto_y_range, None);
+    }
+
+    #[test]
+    fn syncing_keeps_auto_ranges_of_unchanged_lanes() {
+        let mut l = layout(&[&["a"], &["b"]], 1);
+        for lane in &mut l.lanes {
+            lane.auto_y_range = Some((0.0, 1.0));
+        }
+        l.sync_with_selection(&signals(&["a", "b", "c"]));
+        assert_eq!(l.lanes[0].auto_y_range, Some((0.0, 1.0)));
+        assert_eq!(l.lanes[1].auto_y_range, None);
     }
 
     #[test]

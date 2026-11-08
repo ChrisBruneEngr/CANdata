@@ -29,6 +29,7 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entit
 
     // Signals are added and removed from several places, so lanes catch up here.
     app.plot_lanes.sync_with_selection(&app.selected_signals);
+    settle_auto_y_ranges(app);
     refresh_y_range_inputs(app, window, cx);
 
     // Check if plot data size is reasonable
@@ -184,7 +185,8 @@ fn render_y_range_controls(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -
     let (min_field, max_field) = match (&app.plot_y_min_input, &app.plot_y_max_input) {
         (Some(min), Some(max)) if !is_auto => (render_y_input(min), render_y_input(max)),
         _ => {
-            let (min, max) = lane_auto_range(app, lane)
+            let (min, max) = lane
+                .auto_y_range
                 .map_or(("-".to_string(), "-".to_string()), |(min, max)| {
                     (format_y_limit(min), format_y_limit(max))
                 });
@@ -282,16 +284,36 @@ fn lane_auto_range(app: &CanViewerApp, lane: &PlotLane) -> Option<(f64, f64)> {
     )
 }
 
+/// Work out the Auto range for lanes that don't have one yet. Once set it is kept
+/// while zooming and panning, so the Y axis doesn't jump as the view changes.
+fn settle_auto_y_ranges(app: &mut CanViewerApp) {
+    for index in 0..app.plot_lanes.lanes.len() {
+        let lane = &app.plot_lanes.lanes[index];
+        if lane.y_range.is_none() && lane.auto_y_range.is_none() {
+            let range = lane_auto_range(app, lane);
+            app.plot_lanes.lanes[index].auto_y_range = range;
+        }
+    }
+}
+
 /// Switch the selected lane between Auto and its own limits. Turning Auto off starts
-/// from the current range, so the plot doesn't jump.
+/// from the current range, so the plot doesn't jump. Turning it on fits the range to
+/// what is visible now.
 fn toggle_lane_auto_range(app: &mut CanViewerApp) {
     let selected = app.plot_lanes.selected;
     let lane = &app.plot_lanes.lanes[selected];
     let new_range = match lane.y_range {
         Some(_) => None,
-        None => Some(lane_auto_range(app, lane).unwrap_or((0.0, 1.0))),
+        None => Some(
+            lane.auto_y_range
+                .or_else(|| lane_auto_range(app, lane))
+                .unwrap_or((0.0, 1.0)),
+        ),
     };
-    app.plot_lanes.lanes[selected].y_range = new_range;
+    let lane = &mut app.plot_lanes.lanes[selected];
+    lane.y_range = new_range;
+    lane.auto_y_range = None;
+    settle_auto_y_ranges(app);
 }
 
 /// Reload the Min and Max boxes when the selected lane's limits differ from what they
@@ -896,7 +918,7 @@ fn render_lane(
             series_data.clone(),
             traces,
             range,
-            lane.y_range,
+            lane.y_range.or(lane.auto_y_range),
             start_time,
             lane.show_points,
             cursor_time,
