@@ -43,10 +43,6 @@ winres = "0.1"
 name = "viewer"
 path = "src/main.rs"
 
-# Windows 配置：隐藏控制台窗口
-[profile.release]
-strip = true  # 减小文件大小
-
 # Windows 特定配置
 [package.metadata.winres]
 OriginalFilename = "can-viewer.exe"
