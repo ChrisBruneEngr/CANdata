@@ -4,6 +4,9 @@
 //! inspired by Zed editor's modern, clean aesthetic.
 
 /// Catppuccin Mocha color palette
+///
+/// Kept complete as a reference set, so not every colour is used.
+#[allow(dead_code)]
 pub mod palette {
     use gpui::Rgba;
 
@@ -178,18 +181,14 @@ pub mod colors {
     // Primary colors
     pub const PRIMARY: Rgba = palette::BLUE;
     pub const PRIMARY_HOVER: Rgba = palette::SAPPHIRE;
-    pub const PRIMARY_ACTIVE: Rgba = palette::LAVENDER;
 
     // Background surfaces
     pub const BG_DEFAULT: Rgba = palette::BASE;
     pub const BG_ELEVATED: Rgba = palette::SURFACE0;
     pub const BG_MUTED: Rgba = palette::MANTLE;
-    pub const BG_ACTIVE: Rgba = palette::SURFACE1;
 
     // Borders
     pub const BORDER_DEFAULT: Rgba = palette::SURFACE1;
-    pub const BORDER_FOCUSED: Rgba = palette::BLUE;
-    pub const BORDER_HOVER: Rgba = palette::OVERLAY0;
     pub const BORDER_SUBTLE: Rgba = palette::SURFACE0;
 
     // Text
@@ -202,34 +201,13 @@ pub mod colors {
     pub const SUCCESS: Rgba = palette::GREEN;
     pub const WARNING: Rgba = palette::YELLOW;
     pub const ERROR: Rgba = palette::RED;
-    pub const INFO: Rgba = palette::BLUE;
 
     // Additional surface colors for interactive states
     pub const SURFACE0: Rgba = palette::SURFACE0;
     pub const SURFACE1: Rgba = palette::SURFACE1;
-    pub const SURFACE2: Rgba = palette::SURFACE2;
-    pub const MAROON: Rgba = palette::MAROON;
-    pub const TEAL: Rgba = palette::TEAL;
 
-    // Interactive states
-    pub const INTERACTIVE: Rgba = palette::BLUE;
-    pub const INTERACTIVE_HOVER: Rgba = palette::SAPPHIRE;
-    pub const DISABLED: Rgba = palette::OVERLAY0;
-
-    // Accent — current library badge (used by TopBar and StatusBar)
+    // Accent — current library badge (used by StatusBar)
     pub const ACCENT_GREEN_LIGHT: Rgba = palette::GREEN;
-    pub const ACCENT_GREEN_BG: Rgba = Rgba {
-        r: 0x1a as f32 / 255.0,
-        g: 0x2e as f32 / 255.0,
-        b: 0x1a as f32 / 255.0,
-        a: 1.0,
-    };
-    pub const ACCENT_GREEN_BORDER: Rgba = Rgba {
-        r: 0x2d as f32 / 255.0,
-        g: 0x5a as f32 / 255.0,
-        b: 0x2d as f32 / 255.0,
-        a: 1.0,
-    };
 
     // Window control — close button hover
     pub const CLOSE_HOVER: Rgba = Rgba {
@@ -239,25 +217,6 @@ pub mod colors {
         a: 1.0,
     };
 
-    // Shadows (for depth)
-    pub const SHADOW_SM: Rgba = Rgba {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-        a: 0.1,
-    };
-    pub const SHADOW_MD: Rgba = Rgba {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-        a: 0.2,
-    };
-    pub const SHADOW_LG: Rgba = Rgba {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-        a: 0.3,
-    };
 }
 
 /// Spacing constants (in pixels)
@@ -268,40 +227,14 @@ pub mod spacing {
     pub const SM: gpui::Pixels = px(8.0);
     pub const MD: gpui::Pixels = px(12.0);
     pub const LG: gpui::Pixels = px(16.0);
-    pub const XL: gpui::Pixels = px(20.0);
-    pub const XXL: gpui::Pixels = px(24.0);
 }
 
 /// Border radius constants
 pub mod radius {
     use gpui::px;
 
-    pub const SM: gpui::Pixels = px(2.0);
     pub const MD: gpui::Pixels = px(4.0);
     pub const LG: gpui::Pixels = px(6.0);
-    pub const XL: gpui::Pixels = px(8.0);
-    pub const FULL: gpui::Pixels = px(999.0);
-}
-
-/// Typography scale
-pub mod typography {
-    use gpui::px;
-
-    pub const XS: gpui::Pixels = px(11.0);
-    pub const SM: gpui::Pixels = px(13.0);
-    pub const BASE: gpui::Pixels = px(15.0);
-    pub const MD: gpui::Pixels = px(16.0);
-    pub const LG: gpui::Pixels = px(18.0);
-    pub const XL: gpui::Pixels = px(20.0);
-    pub const XXL: gpui::Pixels = px(24.0);
-}
-
-/// Z-index layers
-pub mod z_index {
-    pub const DROPDOWN: u32 = 100;
-    pub const MODAL: u32 = 200;
-    pub const TOOLTIP: u32 = 300;
-    pub const TOAST: u32 = 400;
 }
 
 #[cfg(test)]
@@ -322,15 +255,12 @@ mod tests {
         // Spacing should follow a consistent scale
         assert!(spacing::SM < spacing::MD);
         assert!(spacing::MD < spacing::LG);
-        assert!(spacing::LG < spacing::XL);
     }
 
     #[test]
     fn test_accent_tokens_defined() {
         // Accent tokens must be opaque and distinct from base palette
         assert_eq!(colors::ACCENT_GREEN_LIGHT, palette::GREEN);
-        assert_eq!(colors::ACCENT_GREEN_BG.a, 1.0);
-        assert_eq!(colors::ACCENT_GREEN_BORDER.a, 1.0);
         assert_eq!(colors::CLOSE_HOVER.a, 1.0);
         // CLOSE_HOVER should be red-dominant
         assert!(colors::CLOSE_HOVER.r > 0.7);

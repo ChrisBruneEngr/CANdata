@@ -1511,10 +1511,9 @@ impl CanViewerApp {
                             .flex()
                             .gap_2()
                             .child({
-                                use crate::ui::components::{Button, ButtonSize, ButtonVariant};
+                                use crate::ui::components::{Button, ButtonSize};
                                 Button::new("Import Database")
                                     .size(ButtonSize::Small)
-                                    .variant(ButtonVariant::Secondary)
                                     .build()
                                     .on_mouse_down(gpui::MouseButton::Left, {
                                         let view = cx.entity().clone();
@@ -1526,10 +1525,9 @@ impl CanViewerApp {
                                     })
                             })
                             .child({
-                                use crate::ui::components::{Button, ButtonSize, ButtonVariant};
+                                use crate::ui::components::{Button, ButtonSize};
                                 Button::new("Save Config")
                                     .size(ButtonSize::Small)
-                                    .variant(ButtonVariant::Secondary)
                                     .build()
                                     .on_mouse_down(gpui::MouseButton::Left, {
                                         let view = cx.entity().clone();
