@@ -255,6 +255,7 @@ impl FileStatistics {
 mod tests {
     use super::*;
     use crate::test_utils::*;
+    use std::io::Write;
 
     #[test]
     fn test_read_file_statistics_successfully() {
@@ -424,6 +425,12 @@ mod tests {
         let mut cursor = Cursor::new(&data[..]);
         let result = FileStatistics::read(&mut cursor);
 
-        assert!(matches!(result, Err(BlfParseError::InvalidFileMagic)));
+        // The error is wrapped with context naming the field that was being read.
+        match result {
+            Err(BlfParseError::Context { inner, .. }) => {
+                assert!(matches!(*inner, BlfParseError::InvalidFileMagic))
+            }
+            other => panic!("expected InvalidFileMagic, got {:?}", other),
+        }
     }
 }

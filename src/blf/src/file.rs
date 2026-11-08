@@ -295,20 +295,13 @@ mod tests {
         add_padding(&mut inner_object_bytes);
 
         // 3. --- Create and serialize the LogContainer ---
-        let container_header = ObjectHeader {
-            base: crate::objects::object_header::ObjectHeaderBase {
-                signature: 0x4A424F4C, // "LOBJ"
-                header_size: 32,       // 修正header_size为实际大小
-                header_version: 1,
-                object_size: 0, // Will be calculated later
-                object_type: ObjectType::LogContainer,
-            },
-            object_flags: 0,
-            client_index: 0,
-            object_version: 0,
-            object_time_stamp: 0,
-            original_time_stamp: None,
-            time_stamp_status: None,
+        // A LogContainer has only the 16-byte base header.
+        let container_header = crate::objects::object_header::ObjectHeaderBase {
+            signature: 0x4A424F4C, // "LOBJ"
+            header_size: 16,
+            header_version: 1,
+            object_size: 0, // Will be calculated later
+            object_type: ObjectType::LogContainer,
         };
         let mut log_container = LogContainer {
             header: container_header.clone(),
@@ -385,17 +378,20 @@ mod tests {
     fn test_streaming_blf_reader() {
         // Create a simple BLF file for testing
         let can_msg_header = ObjectHeader {
-            signature: 0x4A424F4C,
-            header_size: 32,
-            header_version: 1,
-            object_size: 48,
-            object_type: ObjectType::CanMessage,
+            base: crate::objects::object_header::ObjectHeaderBase {
+                signature: 0x4A424F4C,
+                header_size: 32,
+                header_version: 1,
+                object_size: 48,
+                object_type: ObjectType::CanMessage,
+            },
             object_flags: 0,
             client_index: 0,
             object_version: 0,
             object_time_stamp: 1000,
             original_time_stamp: None,
             time_stamp_status: None,
+            reserved: 0,
         };
 
         let can_message = CanMessage {
@@ -410,18 +406,12 @@ mod tests {
         let mut inner_object_bytes = serialize_can_message(&can_message);
         add_padding(&mut inner_object_bytes);
 
-        let container_header = ObjectHeader {
+        let container_header = crate::objects::object_header::ObjectHeaderBase {
             signature: 0x4A424F4C,
-            header_size: 32,
+            header_size: 16,
             header_version: 1,
             object_size: 0,
             object_type: ObjectType::LogContainer,
-            object_flags: 0,
-            client_index: 0,
-            object_version: 0,
-            object_time_stamp: 0,
-            original_time_stamp: None,
-            time_stamp_status: None,
         };
 
         let mut log_container = LogContainer {

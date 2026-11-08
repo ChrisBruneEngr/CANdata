@@ -853,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_inner_objects_skips_unknown_object() {
+    fn test_parse_inner_objects_keeps_unknown_object_as_unhandled() {
         use crate::ObjectType;
         use std::io::Write;
 
@@ -891,7 +891,16 @@ mod tests {
         let mut cursor = Cursor::new(&unknown_object_bytes[..]);
         let result = parser.parse_inner_objects(&mut cursor).unwrap();
 
-        // The parser should gracefully skip the unknown object and return an empty list.
-        assert!(result.is_empty());
+        // Unknown objects are kept as `Unhandled`, with their type, timestamp
+        // and raw body, rather than being dropped.
+        assert_eq!(result.len(), 1);
+        match &result[0] {
+            LogObject::Unhandled { object_type, timestamp, data } => {
+                assert_eq!(*object_type, ObjectType::Unknown as u32);
+                assert_eq!(*timestamp, 1000);
+                assert_eq!(data.len(), 38 - 32);
+            }
+            other => panic!("expected Unhandled, got {:?}", other),
+        }
     }
 }

@@ -3,7 +3,7 @@
 
 use crate::{
     CanFdMessage, CanFdMessage64, CanMessage, CanMessage2, FileStatistics, LogContainer,
-    ObjectHeader, ObjectType, SystemTime,
+    SystemTime,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
@@ -70,7 +70,6 @@ pub fn serialize_object_header_base(
     header: &crate::objects::object_header::ObjectHeaderBase,
     writer: &mut impl Write,
 ) {
-    use crate::objects::object_header::OBJECT_SIGNATURE;
     use byteorder::WriteBytesExt;
 
     writer
@@ -95,7 +94,6 @@ pub fn serialize_object_header(
     header: &crate::objects::object_header::ObjectHeader,
     writer: &mut impl Write,
 ) {
-    use crate::objects::object_header::OBJECT_SIGNATURE;
     use byteorder::WriteBytesExt;
 
     // Write base header first

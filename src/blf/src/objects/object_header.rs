@@ -220,6 +220,7 @@ impl ObjectHeader {
     ///
     /// # Example
     /// ```
+    /// # use blf::{ObjectHeader, ObjectType};
     /// let header = ObjectHeader::new_v1(ObjectType::CanMessage, 0);
     /// ```
     ///
@@ -253,6 +254,7 @@ impl ObjectHeader {
     ///
     /// # Example
     /// ```
+    /// # use blf::{ObjectHeader, ObjectType};
     /// let header = ObjectHeader::new_v2(ObjectType::CanMessage2);
     /// ```
     ///
@@ -415,8 +417,14 @@ impl ObjectHeader {
     ///
     /// # Example
     /// ```
+    /// # use blf::{ObjectHeader, ObjectType};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let mut header = ObjectHeader::new_v1(ObjectType::CanMessage, 0);
+    /// # let mut writer = Vec::new();
     /// header.prepare_for_write();  // Calculate sizes first
     /// header.write(&mut writer)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn write<W: Write>(&self, writer: &mut W) -> BlfParseResult<()> {
         // Write base header first
@@ -491,8 +499,14 @@ impl ObjectHeader {
     ///
     /// # Example
     /// ```
+    /// # use blf::{ObjectHeader, ObjectType};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let mut header = ObjectHeader::new_v1(ObjectType::CanMessage, 0);
+    /// # let mut writer = Vec::new();
     /// header.prepare_for_write();
     /// header.write(&mut writer)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn prepare_for_write(&mut self) {
         self.base.header_size = self.calculate_header_size();
