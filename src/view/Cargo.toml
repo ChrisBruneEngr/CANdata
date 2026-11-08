@@ -3,9 +3,10 @@ name = "candata"
 version = "0.1.0"
 edition = "2024"
 
+# CANdata is a Windows-only application.
+
 [dependencies]
-# runtime_shaders: build shaders at runtime (Rust) instead of via xcrun metal,
-# so the crate builds without full Xcode. CI uses full Xcode and ignores this.
+# runtime_shaders: compile GPU shaders when the app starts instead of at build time.
 gpui = { git = "https://github.com/zed-industries/zed", features = ["runtime_shaders"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 anyhow = "1.0"
@@ -17,33 +18,24 @@ env_logger = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"
-urlencoding = "2.1"
 smol = "2"
-
-# Platform-specific file dialog backend
-[target.'cfg(windows)'.dependencies]
+# Native file and message dialogs.
 rfd = { version = "0.14", default-features = false, features = ["tokio"] }
 # Native window restore (gpui has no restore call on Windows); same versions gpui uses.
 raw-window-handle = "0.6"
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-rfd = { version = "0.14", default-features = false, features = ["tokio"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-rfd = { version = "0.14", default-features = false, features = ["tokio", "xdg-portal"] }
-
 [dev-dependencies]
 tempfile = "3.3"
 
-[target.'cfg(windows)'.build-dependencies]
+[build-dependencies]
 winres = "0.1"
 
 [[bin]]
 name = "candata"
 path = "src/main.rs"
 
-# Windows 特定配置
+# Windows executable metadata
 [package.metadata.winres]
 OriginalFilename = "candata.exe"
 ProductName = "CANdata"

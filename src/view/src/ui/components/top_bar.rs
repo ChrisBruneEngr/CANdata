@@ -17,7 +17,6 @@ pub fn render_top_bar(
     view: Entity<CanDataApp>,
     _cx: &mut Context<CanDataApp>,
 ) -> impl IntoElement {
-    let is_macos = cfg!(target_os = "macos");
     let show_file_menu = app.show_file_menu;
     let in_library_view = app.current_view == AppView::LibraryView
         || app.current_view == AppView::ConfigView;
@@ -161,9 +160,6 @@ pub fn render_top_bar(
             });
         });
 
-    // macOS: 80px left padding to leave room for traffic lights
-    let left_pad = if is_macos { Some(px(80.)) } else { None };
-
     div()
         .h(px(36.))
         .bg(colors::BG_MUTED)
@@ -173,24 +169,23 @@ pub fn render_top_bar(
         .border_b_1()
         .border_color(colors::BORDER_SUBTLE)
         .window_control_area(WindowControlArea::Drag)
-        .when_some(left_pad, |el, pad| el.child(div().w(pad)))
         // Left: File menu + Library button (config entry)
         .child(file_button)
         .child(library_button)
         // Center: spacer that fills remaining width so the right side sticks to the edge
         .child(div().flex_1())
-        // Right: Settings + Help buttons (all platforms) + window controls (non-macOS only)
+        // Right: Settings + Help buttons + window controls
         .child(settings_button)
         .child(help_button)
-        .when(!is_macos, |el| el.child(render_window_controls(view)))
+        .child(render_window_controls(view))
 }
 
 /// Render the Settings dropdown over a full-window layer that closes it on an outside click.
 pub fn render_settings_menu(app: &CanDataApp, view: Entity<CanDataApp>) -> impl IntoElement {
     let current = app.app_config.signal_list_mode;
     let view_for_close = view.clone();
-    // Sit under the Settings button, clear of the Win/Linux window controls.
-    let right_offset = if cfg!(target_os = "macos") { px(16.) } else { px(124.) };
+    // Sit under the Settings button, clear of the window controls.
+    let right_offset = px(124.);
 
     div()
         .absolute()

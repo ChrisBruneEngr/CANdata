@@ -4,12 +4,12 @@
 
 ![CANdata Logo](assets/svg/logo-256x256.svg)
 
-**Open-source cross-platform CAN/LIN bus data analysis tool**
+**Open-source CAN/LIN bus data analysis tool for Windows**
 
 [![Build](https://img.shields.io/github/actions/workflow/status/ChrisBruneEngr/CANdata/build.yml?branch=main&style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE.txt)
 [![Rust](https://img.shields.io/badge/rust-stable-orange?style=flat-square)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-lightgrey?style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/releases)
 
 Fully open source — your ⭐ keeps development going!
 
@@ -44,9 +44,8 @@ A typical session: drop a `.blf` recording onto the window, activate a DBC datab
 
 **Multi-file & UX**
 - 📁 **Merged timeline** — load multiple BLF files in parallel; messages sorted by absolute timestamp (`measurement_start_time + object_time_stamp`), so recordings from different sessions line up
-- 🖱️ **Drag-and-drop loading** — drop `.blf` files or a folder onto the window; macOS Dock-icon drop also supported; large files (> 1 GB) trigger a confirmation prompt
+- 🖱️ **Drag-and-drop loading** — drop `.blf` files or a folder onto the window; large files (> 1 GB) trigger a confirmation prompt
 - 📦 **Library export / import** — move a signal library, including its DBC/LDF files, to another machine as one `.cvlib` file
-- 🌐 **Cross-platform** — Windows, macOS, Linux
 
 ---
 
@@ -64,19 +63,16 @@ A typical session: drop a `.blf` recording onto the window, activate a DBC datab
 
 ## Quick Start
 
-**Requirements:** Rust stable (1.85+ for edition 2024), Git
+**Requirements:** Windows 10 or 11 (x64), Rust stable with the MSVC toolchain (1.85+ for edition 2024), Git
 
 ```bash
-# Linux additional dependencies
-sudo apt-get install libxkbcommon-dev libx11-dev libegl1-mesa-dev
-
 # Build and run
 git clone https://github.com/ChrisBruneEngr/CANdata.git
 cd CANdata
 cargo run --release --bin candata
 ```
 
-Pre-built binaries: [Releases](https://github.com/ChrisBruneEngr/CANdata/releases) (Windows / macOS / Linux)
+Pre-built binaries: [Releases](https://github.com/ChrisBruneEngr/CANdata/releases) (Windows installer and portable ZIP)
 
 ### Try it with demo data
 
@@ -91,7 +87,7 @@ Drop `demo.blf` onto the window, activate `demo.dbc` on channel 1, then switch t
 
 ## Usage
 
-1. **Open log** — File → Open BLF… (single, replaces) or Open Multiple BLF… (append). Drag-and-drop also works — dropping always clears the current session and reloads. On macOS, Dock-icon drop is supported too.
+1. **Open log** — File → Open BLF… (single, replaces) or Open Multiple BLF… (append). Drag-and-drop also works — dropping always clears the current session and reloads.
 2. **Manage signal libraries** — Library tab → add DBC / LDF files → activate a version for the channel.
 3. **Signal sets** — on a library, save the current channel+message+signal selection as a named set. Open the dropdown from the plot sidebar header to apply (batch-select), rename, or delete.
 4. **Browse log** — Log tab shows decoded signal values per frame.
@@ -112,13 +108,13 @@ CANdata is portable: configuration (`multi_channel_config.json`), signal sets (`
 
 - ✅ BLF parsing core (CAN / CAN FD / LIN / FlexRay / Ethernet)
 - ✅ DBC / LDF database parsing
-- ✅ GPUI desktop UI (GPU-accelerated, cross-platform)
+- ✅ GPUI desktop UI (GPU-accelerated)
 - ✅ Message filtering (by ID and channel) and signal decoding
 - ✅ Signal waveform plot — zoom, hover, absolute time, live plot on selection, no-data placeholders
 - ✅ Multi-version signal library management (create / activate / export & import as `.cvlib` files)
 - ✅ Signal sets — named channel+message+signal collections, batch-apply to plot
 - ✅ Multi-file loading with merged timeline (Open BLF... replaces, Open Multiple BLF... appends)
-- ✅ Drag-and-drop BLF loading (in-window + macOS Dock-icon), folder expansion, large-file guard
+- ✅ Drag-and-drop BLF loading (in-window), folder expansion, large-file guard
 - ✅ Status bar multi-file segment with ⚠️ parse-error indicator and Loaded Files popover
 - ✅ Parallel BLF loading (rayon parallel zlib decompress + index-sort merge, ~3× faster on multi-core CPUs)
 
@@ -140,7 +136,7 @@ cargo fmt --all          # Format
 cargo clippy --workspace # Lint
 ```
 
-For cross-platform builds and packaging scripts, see [`scripts/`](scripts/) and the [build workflow](.github/workflows/build.yml).
+For packaging scripts (portable ZIP and Inno Setup installer), see [`scripts/`](scripts/) and the [build workflow](.github/workflows/build.yml).
 
 ---
 

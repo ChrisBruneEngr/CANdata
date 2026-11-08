@@ -1,8 +1,7 @@
 //! Drag-and-drop BLF loading — entry point and path helpers.
 //!
 //! `handle_drop` is called from the in-window `.on_drop` handler in
-//! `impls_rendering.rs` and from the macOS Dock-icon `on_open_urls`
-//! handler in `main.rs`.
+//! `impls_rendering.rs`.
 
 use std::path::PathBuf;
 
@@ -67,8 +66,7 @@ pub fn expand_folders(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<String>) {
     (out, summaries)
 }
 
-/// Entry point. Called from `.on_drop` (in-window) and `on_open_urls`
-/// (Dock icon).
+/// Entry point. Called from the window's `.on_drop` handler.
 ///
 /// Pipeline:
 /// 1. Filter to .blf + expand top-level folders.
@@ -229,16 +227,6 @@ pub fn drain_pending_drop(
     }
 }
 
-/// Pull paths dropped on the Dock icon (stashed by `main.rs`'s
-/// `on_open_urls` handler) into `pending_drop_paths` so the regular
-/// tick drain will pick them up. Called from the render tick.
-pub fn drain_dock_drop_queue(app: &mut crate::app::CanDataApp) {
-    if let Ok(mut q) = crate::DOCK_DROP_QUEUE.lock() {
-        if !q.is_empty() {
-            app.pending_drop_paths.extend(q.drain(..));
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

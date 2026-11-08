@@ -1,23 +1,24 @@
-name: Release Build
+name: Release
 
 on:
   push:
     tags:
-      - 'v*'  # 当推送 v* 标签时触发（如 v1.0.0）
-  workflow_dispatch:  # 允许手动触发
+      - 'v*'  # runs when a v* tag is pushed, e.g. v1.0.0
+  workflow_dispatch:  # allow manual runs
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Windows 打包
-  build-windows:
+  release:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          fetch-depth: 0  # full history so `git describe` can stamp the version
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -25,7 +26,7 @@ jobs:
       - name: Setup Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Build Release
+      - name: Build release
         run: cargo build --release -p candata
 
       - name: Get version from tag
@@ -43,242 +44,45 @@ jobs:
       - name: Create ZIP package
         shell: pwsh
         run: |
-          $VERSION = "${{ steps.get_version.outputs.VERSION }}"
-          .\scripts\package.ps1 -Version $VERSION
+          .\scripts\package.ps1 -Version "${{ steps.get_version.outputs.VERSION }}"
 
       - name: Install Inno Setup
-        run: |
-          choco install innosetup -y
-
-      - name: Download Inno Setup Translations
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/refs/heads/main/Files/Languages/ChineseSimplified.isl" -OutFile "ChineseSimplified.isl"
+        run: choco install innosetup -y
 
       - name: Create installer
         shell: pwsh
         run: |
-          $VERSION = "${{ steps.get_version.outputs.VERSION }}"
-          # 等待 Inno Setup 安装完成
-          Start-Sleep -Seconds 10
           $env:PATH += ";C:\Program Files (x86)\Inno Setup 6"
-          .\scripts\build-installer.ps1 -Version $VERSION -InnoSetupPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          .\scripts\build-installer.ps1 -Version "${{ steps.get_version.outputs.VERSION }}" -InnoSetupPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 
-      - name: Upload Windows ZIP
+      - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
           name: windows-zip
           path: release-package/*.zip
 
-      - name: Upload Windows Installer
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: installer-output/*.exe
 
-  # macOS 打包
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Rust cache
-        uses: swatinem/rust-cache@v2
-
-      - name: Install create-dmg
-        run: brew install create-dmg
-
-      - name: Get version from tag
-        id: get_version
-        run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          else
-            VERSION="dev"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-
-      - name: Build and Package
-        run: |
-          chmod +x scripts/package-macos.sh
-          ./scripts/package-macos.sh ${{ steps.get_version.outputs.VERSION }}
-
-      - name: Upload macOS DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-dmg
-          path: release-package/*.dmg
-        continue-on-error: true
-
-      - name: Upload macOS tar.gz
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-tarball
-          path: release-package/*-macos.tar.gz
-
-  # Linux 打包
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Rust cache
-        uses: swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            lld \
-            clang \
-            pkg-config \
-            libxkbcommon-dev \
-            libxkbcommon-x11-0 \
-            libxkbcommon-x11-dev \
-            libxcb-xkb-dev \
-            libwayland-dev \
-            libvulkan-dev \
-            libx11-dev \
-            libegl1-mesa-dev \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            dpkg-dev \
-            rpm \
-            libgtk-3-dev \
-            libfuse2
-
-      - name: Install AppImage tools
-        run: |
-          wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
-
-      - name: Get version from tag
-        id: get_version
-        run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          else
-            VERSION="dev"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-
-      - name: Build and Package
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1
-        run: |
-          chmod +x scripts/package-linux.sh
-          ./scripts/package-linux.sh ${{ steps.get_version.outputs.VERSION }}
-
-      - name: Upload Linux DEB
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-deb
-          path: release-package/*.deb
-        continue-on-error: true
-
-      - name: Upload Linux RPM
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-rpm
-          path: release-package/*.rpm
-        continue-on-error: true
-
-      - name: Upload Linux tar.gz
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-tarball
-          path: release-package/*-linux-*.tar.gz
-
-      - name: Upload Linux AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-appimage
-          path: release-package/*.AppImage
-        continue-on-error: true
-
-  # 创建 GitHub Release
-  create-release:
-    needs: [build-windows, build-macos, build-linux]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Get version from tag
-        id: get_version
-        shell: bash
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Display structure of downloaded files
-        run: ls -R artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           name: CANdata v${{ steps.get_version.outputs.VERSION }}
           body: |
             ## CANdata v${{ steps.get_version.outputs.VERSION }}
 
-            ### 🚀 下载
+            CANdata runs on Windows 10 and 11 (x64).
 
-            #### Windows
-            - **安装程序**: `candata-Setup-v${{ steps.get_version.outputs.VERSION }}.exe` - 推荐
-            - **便携版**: `candata-v${{ steps.get_version.outputs.VERSION }}.zip`
+            - **Installer:** `candata-Setup-v${{ steps.get_version.outputs.VERSION }}.exe` (recommended)
+            - **Portable:** `candata-v${{ steps.get_version.outputs.VERSION }}.zip`
 
-            #### macOS
-            - **DMG 镜像**: `candata-v${{ steps.get_version.outputs.VERSION }}.dmg`
-            - **压缩包**: `candata-v${{ steps.get_version.outputs.VERSION }}-macos.tar.gz`
-
-            #### Linux
-            - **AppImage**: `candata-v${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage` - 推荐
-            - **Debian/Ubuntu**: `candata_${{ steps.get_version.outputs.VERSION }}_amd64.deb`
-            - **Fedora/RHEL**: `candata-${{ steps.get_version.outputs.VERSION }}-1.*.rpm`
-            - **通用包**: `candata-v${{ steps.get_version.outputs.VERSION }}-linux-amd64.tar.gz`
-
-            ---
-            **构建时间**: ${{ github.event.head_commit.timestamp }}
-            **提交**: ${{ github.sha }}
+            Commit: ${{ github.sha }}
           files: |
-            artifacts/windows-installer/*.exe
-            artifacts/windows-zip/*.zip
-            artifacts/macos-dmg/*.dmg
-            artifacts/macos-tarball/*.tar.gz
-            artifacts/linux-deb/*.deb
-            artifacts/linux-rpm/*.rpm
-            artifacts/linux-appimage/*.AppImage
-            artifacts/linux-tarball/*.tar.gz
+            installer-output/*.exe
+            release-package/*.zip
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

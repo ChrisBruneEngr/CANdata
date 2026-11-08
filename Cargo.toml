@@ -6,9 +6,6 @@ members = [
     "src/parser",
 ]
 
-[workspace.dependencies]
-ashpd = { version = "0.8", default-features = false, features = ["tokio"] }
-
 # Profiles only take effect at the workspace root.
 [profile.release]
 strip = true  # Smaller release binaries

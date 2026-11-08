@@ -558,12 +558,11 @@ impl CanDataApp {
     /// work area (on Windows, the screen minus the taskbar), the same as
     /// double-clicking the title bar or pressing Win+Up.
     pub(crate) fn toggle_maximize(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
-        #[cfg(windows)]
         if window.is_maximized() {
             restore_window(window);
             return;
         }
-        // On Windows this only maximizes; on Linux it toggles maximized state.
+        // gpui's zoom only maximizes; restoring is handled above.
         window.zoom_window();
     }
 
@@ -2013,7 +2012,6 @@ mod tests {
 
 /// Restore a maximized window to its previous size. gpui has no restore call
 /// on Windows, so ask the OS directly through the window's HWND.
-#[cfg(windows)]
 fn restore_window(window: &Window) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows::Win32::Foundation::HWND;

@@ -37,7 +37,7 @@ For a fresh install with no libraries configured yet, go to **Library** (top bar
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  [macOS traffic lights]   File  Library                     │ ← Top bar (36px)
+│  File  Library                   Settings  Help   _  []  X │ ← Top bar (36px)
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
 │                                                            │
@@ -49,7 +49,7 @@ For a fresh install with no libraries configured yet, go to **Library** (top bar
 └────────────────────────────────────────────────────────────┘
 ```
 
-- **Top bar** — File menu, Library button, window controls (Win/Linux).
+- **Top bar** — File menu, Library button, Settings and Help menus, window controls.
 - **Content area** — switches between Log / Plot / Library / Config.
 - **Status bar** — file info, message/DBC/LDF counts, status messages, active library, view name, and the Log ⇄ Plot toggle.
 
@@ -144,7 +144,7 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 - **Drag to zoom** — click-drag horizontally on a chart to select a region. Selections > 10 px commit the zoom; smaller selections are ignored.
 - **Double-click** — resets zoom.
 - **Right-drag** — while zoomed in, pans through time at the same zoom level. It stops at the ends of the data.
-- **Ctrl/⌘ + wheel** — scrolls the lanes when they don't all fit. The wheel also scrolls them when the mouse is outside the plot area.
+- **Ctrl + wheel** — scrolls the lanes when they don't all fit. The wheel also scrolls them when the mouse is outside the plot area.
 
 ### Cursor
 
@@ -331,10 +331,10 @@ CANdata has no global hotkey registry. Shortcuts are per-view.
 - **Double-click** on a chart — reset zoom.
 - **Mouse wheel** — zoom in/out.
 - **Right-drag** — pan while zoomed in.
-- **Ctrl/⌘ + wheel** — scroll the lanes.
+- **Ctrl + wheel** — scroll the lanes.
 - No keyboard shortcuts.
 
-### Window controls (Win/Linux)
+### Window controls
 
 The minimize / maximize / close buttons in the top-right are mouse-only.
 

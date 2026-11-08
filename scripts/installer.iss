@@ -1,15 +1,16 @@
-; CANdata 安装程序脚本
-; 使用 Inno Setup 编译此脚本以创建安装程序
+; CANdata installer script
+; Compile with Inno Setup 6 to build the installer.
 
 #define MyAppName "CANdata"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Your Company"
+#define MyAppPublisher "Chris Brune"
 #define MyAppURL "https://github.com/ChrisBruneEngr/CANdata"
 #define MyAppExeName "candata.exe"
 
 [Setup]
-; 基本信息
-AppId={{A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D}
+; Basic information. AppId must stay the same across CANdata releases so upgrades work;
+; it is deliberately different from the original can-viewer installer's AppId.
+AppId={{E5F51502-5C94-4004-9DF9-4C943D37CB04}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -30,12 +31,11 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
-; 卸载信息
+; Uninstall information
 UninstallDisplayIcon={app}\bin\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
@@ -43,50 +43,50 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 
 [Files]
-; 主程序
+; Main program
 Source: "target\release\candata.exe"; DestDir: "{app}\bin"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
 
-; 配置目录
+; Configuration folder
 Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; 示例文件
+; Sample files
 Source: "sample.dbc"; DestDir: "{app}\samples"; Flags: ignoreversion; Check: FileExists('sample.dbc')
 ; sample.blf is not included in the repository
 
-; 文档
+; Documentation
 Source: "README.md"; DestDir: "{app}\docs"; Flags: ignoreversion isreadme; Check: FileExists('README.md')
 
 
-; 资源文件
+; Resource files
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: DirExists('assets')
 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Dirs]
-; 创建必要的目录
+; Create required folders
 Name: "{app}\config\signal_library"; Permissions: users-modify
 Name: "{app}\logs"; Permissions: users-modify
 Name: "{userappdata}\{#MyAppName}"; Permissions: users-modify
 
 [Icons]
-; 开始菜单图标
+; Start menu shortcut
 Name: "{group}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
-; 桌面图标
+; Desktop shortcut
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: desktopicon
 
-; 快速启动图标
+; Quick Launch shortcut
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: quicklaunchicon
 
 [Run]
-; 安装完成后运行程序
+; Offer to start the program when setup finishes
 Filename: "{app}\bin\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// 自定义安装逻辑
+// Custom setup logic
 
-// 检查是否已安装旧版本
+// Find the uninstaller of an existing installation, if any
 function GetUninstallString(): String;
 var
   sUnInstPath: String;
@@ -99,7 +99,7 @@ begin
   Result := sUnInstallString;
 end;
 
-// 卸载旧版本
+// Uninstall the previous version
 function IsUpgrade(): Boolean;
 begin
   Result := (GetUninstallString() <> '');
@@ -122,13 +122,13 @@ begin
     Result := 1;
 end;
 
-// 初始化安装与配置
+// Upgrade handling and default configuration
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ConfigFile: String;
   DefaultConfig: String;
 begin
-  // 1. 检查并卸载旧版本 (安装开始前)
+  // 1. Before installing, remove an existing version
   if (CurStep = ssInstall) then
   begin
     if (IsUpgrade()) then
@@ -137,7 +137,7 @@ begin
     end;
   end;
 
-  // 2. 创建默认配置文件 (安装完成后)
+  // 2. After installing, create a default config file
   if CurStep = ssPostInstall then
   begin
     ConfigFile := ExpandConstant('{app}\config\default_config.json');

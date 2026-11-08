@@ -1595,9 +1595,7 @@ impl Render for CanDataApp {
 
         let view = cx.entity().clone();
 
-        // Pull Dock-icon drops into pending_drop_paths, then drain if no
-        // load is in flight.
-        crate::handlers::drag_drop::drain_dock_drop_queue(self);
+        // Start any drop that was queued while a load was in flight.
         crate::handlers::drag_drop::drain_pending_drop(self, cx);
 
         div()
