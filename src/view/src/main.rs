@@ -15,7 +15,7 @@ mod rendering;
 mod ui;
 
 // Import rendering utilities and app types
-use app::CanViewerApp;
+use app::CanDataApp;
 
 // Re-export common types from models for use in other modules
 pub use models::{AppConfig, ChannelMapping, ChannelType};
@@ -23,7 +23,7 @@ pub use models::{AppConfig, ChannelMapping, ChannelType};
 // Shared stash of paths dropped on the Dock icon while no window was
 // available to dispatch them. Drained by the render tick via
 // `crate::handlers::drag_drop::drain_dock_drop_queue` (registered below
-// as an cx observer on each new CanViewerApp). The callback signature for
+// as an cx observer on each new CanDataApp). The callback signature for
 // `Application::on_open_urls` is `FnMut(Vec<String>)` with no cx arg,
 // so we can't dispatch directly — stash and drain instead.
 static DOCK_DROP_QUEUE: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
@@ -68,7 +68,7 @@ fn main() {
     let app = Application::new();
     // macOS Dock-icon drop → on_open_urls fires with file:// URLs.
     // The callback has no cx, so we stash paths to a global queue. The
-    // first CanViewerApp's render tick drains it via drain_dock_drop_queue.
+    // first CanDataApp's render tick drains it via drain_dock_drop_queue.
     app.on_open_urls(move |urls: Vec<String>| {
         let paths = parse_file_urls(urls);
         if paths.is_empty() { return; }
@@ -93,7 +93,7 @@ fn main() {
                     },
                 })),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("can-viewer".into()),
+                    title: Some("CANdata".into()),
                     appears_transparent: true,
                     traffic_light_position: None,
                 }),
@@ -101,7 +101,7 @@ fn main() {
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
-                let view = cx.new(|_cx| CanViewerApp::new());
+                let view = cx.new(|_cx| CanDataApp::new());
                 cx.new(|cx| gpui_component::Root::new(view, window, cx))
             })?;
             Ok::<_, anyhow::Error>(())
@@ -118,34 +118,34 @@ fn main() {
         // those platforms — see top_bar.rs + impls_rendering.rs).
         cx.set_menus(vec![
             gpui::Menu {
-                name: "can-viewer".into(),
+                name: "CANdata".into(),
                 items: vec![
-                    gpui::MenuItem::action("About can-viewer", help::ShowAbout),
+                    gpui::MenuItem::action("About CANdata", help::ShowAbout),
                     gpui::MenuItem::separator(),
                     gpui::MenuItem::action("View on GitHub", help::OpenGitHubUrl),
                     gpui::MenuItem::separator(),
                     gpui::MenuItem::action("Send Feedback", help::SendFeedbackEmail),
                     gpui::MenuItem::separator(),
-                    gpui::MenuItem::action("Quit can-viewer", help::QuitApp),
+                    gpui::MenuItem::action("Quit CANdata", help::QuitApp),
                 ],
             },
         ]);
         cx.on_action(|_action: &help::OpenGitHubUrl, cx| {
-            cx.open_url("https://github.com/cantool/can-viewer");
+            cx.open_url("https://github.com/ChrisBruneEngr/CANdata");
         });
         cx.on_action(|_action: &help::SendFeedbackEmail, cx| {
-            cx.open_url("mailto:admin@ucan.me?subject=can-viewer%20Feedback");
+            cx.open_url("mailto:admin@ucan.me?subject=CANdata%20Feedback");
         });
         cx.on_action(|_action: &help::QuitApp, cx| {
             cx.quit();
         });
         cx.on_action(|_action: &help::ShowAbout, cx| {
-            let version = env!("CAN_VIEWER_VERSION");
+            let version = env!("CANDATA_VERSION");
             cx.spawn(async move |_cx| {
                 let _ = rfd::AsyncMessageDialog::new()
-                    .set_title("About can-viewer")
+                    .set_title("About CANdata")
                     .set_description(&format!(
-                        "can-viewer {}\n\nOpen-source cross-platform CAN/LIN bus data analysis tool\n\nhttps://github.com/cantool/can-viewer",
+                        "CANdata {}\n\nOpen-source cross-platform CAN/LIN bus data analysis tool\n\nhttps://github.com/ChrisBruneEngr/CANdata",
                         version
                     ))
                     .set_buttons(rfd::MessageButtons::Ok)
@@ -166,7 +166,7 @@ fn main() {
                     },
                 })),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("can-viewer".into()),
+                    title: Some("CANdata".into()),
                     appears_transparent: true,
                     traffic_light_position: None,
                 }),
@@ -174,7 +174,7 @@ fn main() {
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
-                let view = cx.new(|_cx| CanViewerApp::new());
+                let view = cx.new(|_cx| CanDataApp::new());
                 // This first level on the window should be a Root for gpui-component
                 cx.new(|cx| gpui_component::Root::new(view, window, cx))
             })?;

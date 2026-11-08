@@ -1,4 +1,4 @@
-use crate::app::CanViewerApp;
+use crate::app::CanDataApp;
 use gpui_component::input::{Input, InputEvent, InputState};
 use crate::models::{DataPoint, Series};
 use crate::plot_lanes::{auto_value_range, format_y_limit, pan_time_range, parse_y_range, PlotLane};
@@ -23,7 +23,7 @@ const DRAW_RIGHT_MARGIN: Pixels = px(28.0);
 const MAX_SIGNALS: usize = 20;
 
 /// Render the plot view with signal charts
-pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entity<CanViewerApp>, cx: &mut Context<CanViewerApp>) -> impl IntoElement {
+pub fn render_plot_view(window: &mut Window, app: &mut CanDataApp, view: Entity<CanDataApp>, cx: &mut Context<CanDataApp>) -> impl IntoElement {
     // Safety check: prevent crash from invalid plot state after window operations
     let series_data = app.plot_data.clone();
 
@@ -75,7 +75,7 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanViewerApp, view: Entit
 }
 
 /// Render the toolbar at the top of the plot area
-fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl IntoElement {
+fn render_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoElement {
     let is_zoomed = app.plot_zoom_start.is_some() || app.plot_zoom_end.is_some();
 
     div()
@@ -115,7 +115,7 @@ fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl In
                             .rounded(px(4.0))
                             .cursor_pointer()
                             .hover(|s| s.bg(rgb(0x374151)))
-                            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this: &mut CanViewerApp, _, _, cx| {
+                            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this: &mut CanDataApp, _, _, cx| {
                                 this.plot_zoom_start = None;
                                 this.plot_zoom_end = None;
                                 crate::ui::views::chart_view::extract_and_update_series_data(this);
@@ -129,7 +129,7 @@ fn render_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl In
 
 
 /// Render the lane buttons above the lanes.
-fn render_lane_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl IntoElement {
+fn render_lane_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoElement {
     let lanes = &app.plot_lanes;
     let over_limit = app.selected_signals.len() > MAX_SIGNALS;
 
@@ -177,7 +177,7 @@ fn render_lane_toolbar(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> im
 }
 
 /// Render the selected lane's Y-axis controls: Auto, then Min and Max.
-fn render_y_range_controls(app: &CanViewerApp, cx: &mut Context<CanViewerApp>) -> impl IntoElement {
+fn render_y_range_controls(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoElement {
     let lane = &app.plot_lanes.lanes[app.plot_lanes.selected];
     let is_auto = lane.y_range.is_none();
 
@@ -219,8 +219,8 @@ fn render_toolbar_separator() -> impl IntoElement {
 fn render_lane_checkbox(
     label: &'static str,
     checked: bool,
-    action: fn(&mut CanViewerApp),
-    cx: &mut Context<CanViewerApp>,
+    action: fn(&mut CanDataApp),
+    cx: &mut Context<CanDataApp>,
 ) -> impl IntoElement {
     div()
         .flex()
@@ -229,7 +229,7 @@ fn render_lane_checkbox(
         .cursor_pointer()
         .on_mouse_down(
             gpui::MouseButton::Left,
-            cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+            cx.listener(move |this: &mut CanDataApp, _, _, cx| {
                 action(this);
                 cx.notify();
             }),
@@ -252,7 +252,7 @@ fn render_lane_checkbox(
 }
 
 /// Show or hide sample dots on the selected lane.
-fn toggle_lane_points(app: &mut CanViewerApp) {
+fn toggle_lane_points(app: &mut CanDataApp) {
     let selected = app.plot_lanes.selected;
     let lane = &mut app.plot_lanes.lanes[selected];
     lane.show_points = !lane.show_points;
@@ -275,7 +275,7 @@ fn render_y_auto_value(value: String) -> AnyElement {
 }
 
 /// The range Auto picks for a lane: everything visible in its signals.
-fn lane_auto_range(app: &CanViewerApp, lane: &PlotLane) -> Option<(f64, f64)> {
+fn lane_auto_range(app: &CanDataApp, lane: &PlotLane) -> Option<(f64, f64)> {
     auto_value_range(
         lane.signals
             .iter()
@@ -286,7 +286,7 @@ fn lane_auto_range(app: &CanViewerApp, lane: &PlotLane) -> Option<(f64, f64)> {
 
 /// Work out the Auto range for lanes that don't have one yet. Once set it is kept
 /// while zooming and panning, so the Y axis doesn't jump as the view changes.
-fn settle_auto_y_ranges(app: &mut CanViewerApp) {
+fn settle_auto_y_ranges(app: &mut CanDataApp) {
     for index in 0..app.plot_lanes.lanes.len() {
         let lane = &app.plot_lanes.lanes[index];
         if lane.y_range.is_none() && lane.auto_y_range.is_none() {
@@ -299,7 +299,7 @@ fn settle_auto_y_ranges(app: &mut CanViewerApp) {
 /// Switch the selected lane between Auto and its own limits. Turning Auto off starts
 /// from the current range, so the plot doesn't jump. Turning it on fits the range to
 /// what is visible now.
-fn toggle_lane_auto_range(app: &mut CanViewerApp) {
+fn toggle_lane_auto_range(app: &mut CanDataApp) {
     let selected = app.plot_lanes.selected;
     let lane = &app.plot_lanes.lanes[selected];
     let new_range = match lane.y_range {
@@ -319,7 +319,7 @@ fn toggle_lane_auto_range(app: &mut CanViewerApp) {
 /// Reload the Min and Max boxes when the selected lane's limits differ from what they
 /// hold, such as after selecting another lane. New boxes are created rather than
 /// updated, so loading a value can't look like typing and change a lane.
-fn refresh_y_range_inputs(app: &mut CanViewerApp, window: &mut Window, cx: &mut Context<CanViewerApp>) {
+fn refresh_y_range_inputs(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<CanDataApp>) {
     let range = app.plot_lanes.lanes[app.plot_lanes.selected].y_range;
     let boxes_exist = app.plot_y_min_input.is_some();
     if range == app.plot_y_inputs_loaded && boxes_exist == range.is_some() {
@@ -336,7 +336,7 @@ fn refresh_y_range_inputs(app: &mut CanViewerApp, window: &mut Window, cx: &mut 
 fn new_y_limit_input(
     value: f64,
     window: &mut Window,
-    cx: &mut Context<CanViewerApp>,
+    cx: &mut Context<CanDataApp>,
 ) -> Entity<InputState> {
     let input = cx.new(|cx| InputState::new(window, cx).default_value(format_y_limit(value)));
     cx.subscribe(&input, |this, _input, event, cx| {
@@ -354,7 +354,7 @@ fn new_y_limit_input(
 }
 
 /// What the Min and Max boxes currently hold, if they're showing.
-fn y_input_range(app: &CanViewerApp, cx: &App) -> Option<Result<(f64, f64), &'static str>> {
+fn y_input_range(app: &CanDataApp, cx: &App) -> Option<Result<(f64, f64), &'static str>> {
     let min = app.plot_y_min_input.as_ref()?.read(cx).value();
     let max = app.plot_y_max_input.as_ref()?.read(cx).value();
     Some(parse_y_range(&min, &max))
@@ -364,8 +364,8 @@ fn y_input_range(app: &CanViewerApp, cx: &App) -> Option<Result<(f64, f64), &'st
 fn render_lane_button(
     label: &'static str,
     enabled: bool,
-    action: fn(&mut CanViewerApp),
-    cx: &mut Context<CanViewerApp>,
+    action: fn(&mut CanDataApp),
+    cx: &mut Context<CanDataApp>,
 ) -> impl IntoElement {
     div()
         .px_2()
@@ -379,7 +379,7 @@ fn render_lane_button(
                 .hover(|s| s.bg(rgb(0x3f3f46)))
                 .on_mouse_down(
                     gpui::MouseButton::Left,
-                    cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                    cx.listener(move |this: &mut CanDataApp, _, _, cx| {
                         action(this);
                         cx.notify();
                     }),
@@ -389,7 +389,7 @@ fn render_lane_button(
 }
 
 /// Plot a signal in a lane and select that lane. A lane holds each signal only once.
-pub fn add_signal_to_lane(app: &mut CanViewerApp, lane: usize, signal_id: &str) {
+pub fn add_signal_to_lane(app: &mut CanDataApp, lane: usize, signal_id: &str) {
     app.plot_lanes.select(lane);
     if !app.plot_lanes.add_signal(lane, signal_id) {
         return;
@@ -402,7 +402,7 @@ pub fn add_signal_to_lane(app: &mut CanViewerApp, lane: usize, signal_id: &str) 
 }
 
 /// Take a signal out of one lane, and stop plotting it if no other lane uses it.
-fn remove_signal_from_lane(app: &mut CanViewerApp, lane: usize, signal_id: &str) {
+fn remove_signal_from_lane(app: &mut CanDataApp, lane: usize, signal_id: &str) {
     app.plot_lanes.remove_signal(lane, signal_id);
     let lanes = &app.plot_lanes;
     app.selected_signals.retain(|signal| lanes.contains(signal));
@@ -411,7 +411,7 @@ fn remove_signal_from_lane(app: &mut CanViewerApp, lane: usize, signal_id: &str)
 }
 
 /// Delete the selected lane and stop plotting signals no other lane uses.
-fn delete_selected_lane(app: &mut CanViewerApp) {
+fn delete_selected_lane(app: &mut CanDataApp) {
     app.plot_lanes.delete_selected();
     let lanes = &app.plot_lanes;
     app.selected_signals.retain(|signal| lanes.contains(signal));
@@ -420,7 +420,7 @@ fn delete_selected_lane(app: &mut CanViewerApp) {
 }
 
 /// The time range every lane shows: the zoom window, or all plotted data.
-fn visible_time_range(app: &CanViewerApp) -> Option<(f64, f64)> {
+fn visible_time_range(app: &CanDataApp) -> Option<(f64, f64)> {
     if let (Some(start), Some(end)) = (app.plot_zoom_start, app.plot_zoom_end) {
         return Some((start, end));
     }
@@ -449,7 +449,7 @@ pub fn lane_color(position: usize) -> Hsla {
 }
 
 /// Render the chart canvas — zoom box + one card per lane.
-fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut Context<CanViewerApp>) -> AnyElement {
+fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Context<CanDataApp>) -> AnyElement {
     let is_dragging = app.is_dragging_zoom;
     let drag_start = app.zoom_drag_start_x;
     let drag_current = app.zoom_drag_current_x;
@@ -525,7 +525,7 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
             }
         })
         // Global Canvas Interactions
-        .on_mouse_down(MouseButton::Left, cx.listener(move |this: &mut CanViewerApp, event: &MouseDownEvent, _, cx| {
+        .on_mouse_down(MouseButton::Left, cx.listener(move |this: &mut CanDataApp, event: &MouseDownEvent, _, cx| {
              // Check for double-click to reset zoom
              if event.click_count == 2 {
                  this.plot_zoom_start = None;
@@ -542,17 +542,17 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
              cx.notify();
         }))
         // Right-drag pans, which only means something while zoomed in.
-        .on_mouse_down(MouseButton::Right, cx.listener(move |this: &mut CanViewerApp, event: &MouseDownEvent, _, cx| {
+        .on_mouse_down(MouseButton::Right, cx.listener(move |this: &mut CanDataApp, event: &MouseDownEvent, _, cx| {
             if let (Some(start), Some(end)) = (this.plot_zoom_start, this.plot_zoom_end) {
                 this.plot_pan_start = Some((event.position.x, start, end));
                 cx.notify();
             }
         }))
-        .on_mouse_up(MouseButton::Right, cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+        .on_mouse_up(MouseButton::Right, cx.listener(move |this: &mut CanDataApp, _, _, cx| {
             this.plot_pan_start = None;
             cx.notify();
         }))
-        .on_mouse_move(cx.listener(move |this: &mut CanViewerApp, event: &MouseMoveEvent, window, cx| {
+        .on_mouse_move(cx.listener(move |this: &mut CanDataApp, event: &MouseMoveEvent, window, cx| {
             // Handle Zoom Dragging
             if this.is_dragging_zoom {
                 this.zoom_drag_current_x = Some(event.position.x);
@@ -569,7 +569,7 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
                 cx.notify();
             }
         }))
-        .on_mouse_up(MouseButton::Left, cx.listener(move |this: &mut CanViewerApp, event: &MouseUpEvent, window, cx| {
+        .on_mouse_up(MouseButton::Left, cx.listener(move |this: &mut CanDataApp, event: &MouseUpEvent, window, cx| {
             if !this.is_dragging_zoom { return; }
             
             if let Some(start_x) = this.zoom_drag_start_x {
@@ -638,7 +638,7 @@ fn render_chart_canvas(app: &CanViewerApp, series_data: Arc<[Series]>, cx: &mut 
 /// Zoom around the mouse with the wheel. Returns false if the event wasn't for zooming,
 /// so the wheel can scroll the lanes instead: Ctrl/Cmd is held, nothing is plotted, or
 /// the mouse is outside the plot area.
-fn zoom_with_wheel(this: &mut CanViewerApp, event: &ScrollWheelEvent, window: &Window) -> bool {
+fn zoom_with_wheel(this: &mut CanDataApp, event: &ScrollWheelEvent, window: &Window) -> bool {
     if event.modifiers.secondary() || this.plot_data.is_empty() {
         return false;
     }
@@ -800,7 +800,7 @@ fn zoom_with_wheel(this: &mut CanViewerApp, event: &ScrollWheelEvent, window: &W
 }
 
 /// The time range of all decoded data, which panning stays within.
-fn full_time_range(app: &CanViewerApp) -> Option<(f64, f64)> {
+fn full_time_range(app: &CanDataApp) -> Option<(f64, f64)> {
     match (app.plot_full_time_min, app.plot_full_time_max) {
         (Some(min), Some(max)) if min < max => Some((min, max)),
         _ => None,
@@ -809,7 +809,7 @@ fn full_time_range(app: &CanViewerApp) -> Option<(f64, f64)> {
 
 /// Move the zoom window to follow a right-drag. Dragging right shows earlier data, as
 /// if pulling the plot along with the mouse.
-fn pan_plot(app: &mut CanViewerApp, mouse_x: Pixels, window: &Window) {
+fn pan_plot(app: &mut CanDataApp, mouse_x: Pixels, window: &Window) {
     let (Some((start_x, start, end)), Some((min, max))) = (app.plot_pan_start, full_time_range(app)) else {
         return;
     };
@@ -857,12 +857,12 @@ fn render_lane(
     index: usize,
     lane: &PlotLane,
     is_selected: bool,
-    app: &CanViewerApp,
+    app: &CanDataApp,
     series_data: &Arc<[Series]>,
     time_range: Option<(f64, f64)>,
     start_time: Option<chrono::NaiveDateTime>,
     cursor_time: Option<f64>,
-    cx: &mut Context<CanViewerApp>,
+    cx: &mut Context<CanDataApp>,
 ) -> AnyElement {
     let mut header_items = Vec::with_capacity(lane.signals.len());
     // (index into series_data, line colour) for each signal with points to draw
@@ -899,7 +899,7 @@ fn render_lane(
                         .child("✕")
                         .on_mouse_down(
                             gpui::MouseButton::Left,
-                            cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                            cx.listener(move |this: &mut CanDataApp, _, _, cx| {
                                 cx.stop_propagation();
                                 remove_signal_from_lane(this, index, &id_to_remove);
                                 cx.notify();
@@ -952,20 +952,20 @@ fn render_lane(
         .drag_over::<DraggedSignal>(|style, _, _, _| {
             style.bg(rgb(0x1e293b)).border_color(rgb(0x60a5fa))
         })
-        .on_drop(cx.listener(move |this: &mut CanViewerApp, signal: &DraggedSignal, _, cx| {
+        .on_drop(cx.listener(move |this: &mut CanDataApp, signal: &DraggedSignal, _, cx| {
             add_signal_to_lane(this, index, &signal.id);
             cx.notify();
         }))
         .on_mouse_down(
             gpui::MouseButton::Left,
-            cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+            cx.listener(move |this: &mut CanDataApp, _, _, cx| {
                 this.plot_lanes.select(index);
                 cx.notify();
             }),
         )
         // Stopping the event here prevents the scroll area from also scrolling.
         .on_scroll_wheel(cx.listener(
-            |this: &mut CanViewerApp, event: &ScrollWheelEvent, window, cx| {
+            |this: &mut CanDataApp, event: &ScrollWheelEvent, window, cx| {
                 if zoom_with_wheel(this, event, window) {
                     cx.stop_propagation();
                     cx.notify();
@@ -981,7 +981,7 @@ fn render_lane(
                 // Clicking the header selects the lane without moving the cursor.
                 .on_mouse_down(
                     gpui::MouseButton::Left,
-                    cx.listener(move |this: &mut CanViewerApp, _, _, cx| {
+                    cx.listener(move |this: &mut CanDataApp, _, _, cx| {
                         cx.stop_propagation();
                         this.plot_lanes.select(index);
                         cx.notify();
@@ -1231,7 +1231,7 @@ struct ChartLayout {
 
 /// Filter existing plot data by zoom range
 /// This is used when messages is empty but plot_data has already been extracted
-fn filter_series_data_by_zoom(app: &CanViewerApp) -> Arc<[Series]> {
+fn filter_series_data_by_zoom(app: &CanDataApp) -> Arc<[Series]> {
     eprintln!("🔍 Filtering existing plot data by zoom range...");
 
     let has_zoom = app.plot_zoom_start.is_some() || app.plot_zoom_end.is_some();
@@ -1274,7 +1274,7 @@ fn filter_series_data_by_zoom(app: &CanViewerApp) -> Arc<[Series]> {
 }
 
 /// Extract series data from application state - SAFE VERSION
-pub fn extract_series_data(app: &CanViewerApp) -> Arc<[Series]> {
+pub fn extract_series_data(app: &CanDataApp) -> Arc<[Series]> {
     eprintln!("🔍 Starting data extraction...");
 
     // If messages is empty but we have plot_data, filter the existing plot_data
@@ -1527,7 +1527,7 @@ pub fn extract_series_data(app: &CanViewerApp) -> Arc<[Series]> {
 
 /// Fast zoom filter: slice plot_full_data by zoom range without re-decoding messages.
 /// This is called every time zoom changes; it's O(points), not O(messages).
-pub fn apply_zoom_to_full_data(app: &mut CanViewerApp) {
+pub fn apply_zoom_to_full_data(app: &mut CanDataApp) {
     if app.plot_full_data.is_empty() {
         // plot_full_data hasn't been populated yet.
         // Do NOT call extract_and_update_series_data here — that would cause
@@ -1600,7 +1600,7 @@ pub fn apply_zoom_to_full_data(app: &mut CanViewerApp) {
 
 /// Wrapper that extracts series data and updates the full time range in app state.
 /// Call this instead of extract_series_data directly.
-pub fn extract_and_update_series_data(app: &mut CanViewerApp) {
+pub fn extract_and_update_series_data(app: &mut CanDataApp) {
     // Always decode ALL data (ignoring zoom range) into plot_full_data
     let saved_start = app.plot_zoom_start.take();
     let saved_end = app.plot_zoom_end.take();
@@ -1636,7 +1636,7 @@ pub fn extract_and_update_series_data(app: &mut CanViewerApp) {
 
 /// Set the cursor from a click at `mouse_x`. Clicks outside the chart drawing
 /// area are ignored.
-fn set_plot_cursor(app: &mut CanViewerApp, mouse_x: Pixels, draw_left: Pixels, draw_right: Pixels) {
+fn set_plot_cursor(app: &mut CanDataApp, mouse_x: Pixels, draw_left: Pixels, draw_right: Pixels) {
     if mouse_x < draw_left || mouse_x > draw_right || draw_right <= draw_left {
         return;
     }
@@ -1679,7 +1679,7 @@ fn format_cursor_value(value: f64, decimals: usize) -> String {
 
 /// Decode every signal at the cursor, plotted or not, from the latest frame of each
 /// message at or before that time. Runs once per click rather than on every frame.
-fn update_cursor_values(app: &mut CanViewerApp) {
+fn update_cursor_values(app: &mut CanDataApp) {
     let Some(cursor) = app.plot_cursor_time else {
         app.plot_cursor_values.clear();
         return;

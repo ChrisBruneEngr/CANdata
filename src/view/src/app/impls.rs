@@ -1,8 +1,8 @@
-//! CanViewerApp implementation blocks
+//! CanDataApp implementation blocks
 //!
-//! This file contains all impl blocks for CanViewerApp.
+//! This file contains all impl blocks for CanDataApp.
 
-use super::state::{AppView, CanViewerApp, LibraryManager};
+use super::state::{AppView, CanDataApp, LibraryManager};
 use crate::AppConfig;
 use crate::ChannelType;
 use blf::BlfResult;
@@ -18,7 +18,7 @@ fn next_file_id() -> u32 {
     FILE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
-impl CanViewerApp {
+impl CanDataApp {
     pub fn new() -> Self {
         let mut app = Self {
             current_view: AppView::LogView,
@@ -148,7 +148,7 @@ impl CanViewerApp {
     }
 
     fn load_startup_config(&mut self) {
-        // can-viewer is portable: the config lives next to the executable only.
+        // CANdata is portable: the config lives next to the executable only.
         let path = crate::config::paths::config_file();
         if path.exists() {
             self.status_msg = "Found saved config, loading...".into();
@@ -538,7 +538,7 @@ impl CanViewerApp {
     /// Save the current configuration to file.
     ///
     /// Uses the existing config file path when available. On first save, stores
-    /// the config next to the executable (can-viewer is portable).
+    /// the config next to the executable (CANdata is portable).
     pub(crate) fn save_config(&self, cx: &mut Context<Self>) {
         let config_path = self
             .config_file_path
@@ -551,7 +551,7 @@ impl CanViewerApp {
         }
     }
 }
-impl CanViewerApp {
+impl CanDataApp {
     /// Maximize the window, or restore it if it is already maximized.
     ///
     /// Uses the platform's native maximize so the window fills the monitor's
@@ -585,7 +585,7 @@ impl CanViewerApp {
 }
 
 // ========== Library Management Methods ==========
-impl CanViewerApp {
+impl CanDataApp {
     /// Create a new library
     pub fn create_library(&mut self, cx: &mut Context<Self>) {
         if self.new_library_name.trim().is_empty() {
@@ -1944,8 +1944,8 @@ mod tests {
     use core::prelude::v1::test; // `use gpui::*` brings in gpui's own `test` macro
     use crate::models::{DataPoint, Series};
 
-    fn make_app_with_selected(signal_id: &str) -> CanViewerApp {
-        let mut app = CanViewerApp::new_state();
+    fn make_app_with_selected(signal_id: &str) -> CanDataApp {
+        let mut app = CanDataApp::new_state();
         app.selected_signals = vec![signal_id.to_string()];
         let series = Series {
             name: signal_id.to_string(),
@@ -1972,7 +1972,7 @@ mod tests {
 
     #[test]
     fn toggle_channel_expanded_accordion_mode() {
-        let mut app = CanViewerApp::new_state();
+        let mut app = CanDataApp::new_state();
         // Expand channel 1
         app.toggle_channel_expanded(1);
         assert!(app.expanded_channels.contains(&1));
@@ -1987,7 +1987,7 @@ mod tests {
 
     #[test]
     fn toggle_channel_expanded_clears_other_channel_messages() {
-        let mut app = CanViewerApp::new_state();
+        let mut app = CanDataApp::new_state();
         // Expand channel 1 + a message under it
         app.toggle_channel_expanded(1);
         app.toggle_message_expanded(1, 0x100);
@@ -1999,7 +1999,7 @@ mod tests {
 
     #[test]
     fn toggle_message_expanded_independent_per_message() {
-        let mut app = CanViewerApp::new_state();
+        let mut app = CanDataApp::new_state();
         app.toggle_message_expanded(1, 0x100);
         app.toggle_message_expanded(1, 0x200);
         assert!(app.expanded_messages.contains(&(1, 0x100)));

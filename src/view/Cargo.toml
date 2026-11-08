@@ -1,5 +1,5 @@
 [package]
-name = "viewer"
+name = "candata"
 version = "0.1.0"
 edition = "2024"
 
@@ -40,11 +40,11 @@ tempfile = "3.3"
 winres = "0.1"
 
 [[bin]]
-name = "viewer"
+name = "candata"
 path = "src/main.rs"
 
 # Windows 特定配置
 [package.metadata.winres]
-OriginalFilename = "can-viewer.exe"
-ProductName = "can-viewer"
+OriginalFilename = "candata.exe"
+ProductName = "CANdata"
 FileDescription = "CAN/LIN Bus Analysis Tool"

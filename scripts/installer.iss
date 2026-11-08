@@ -1,11 +1,11 @@
-; can-viewer 安装程序脚本
+; CANdata 安装程序脚本
 ; 使用 Inno Setup 编译此脚本以创建安装程序
 
-#define MyAppName "can-viewer"
+#define MyAppName "CANdata"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Your Company"
-#define MyAppURL "https://github.com/cantool/can-viewer"
-#define MyAppExeName "can-viewer.exe"
+#define MyAppURL "https://github.com/ChrisBruneEngr/CANdata"
+#define MyAppExeName "candata.exe"
 
 [Setup]
 ; 基本信息
@@ -21,8 +21,8 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=LICENSE.txt
 OutputDir=installer-output
-OutputBaseFilename=can-viewer-Setup-v{#MyAppVersion}
-SetupIconFile=assets\ico\can-viewer.ico
+OutputBaseFilename=candata-Setup-v{#MyAppVersion}
+SetupIconFile=assets\ico\candata.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -44,7 +44,7 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 
 [Files]
 ; 主程序
-Source: "target\release\viewer.exe"; DestDir: "{app}\bin"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
+Source: "target\release\candata.exe"; DestDir: "{app}\bin"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
 
 ; 配置目录
 Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs

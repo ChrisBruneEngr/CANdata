@@ -1,6 +1,6 @@
-# can-viewer User Guide
+# CANdata User Guide
 
-A practical manual for using can-viewer — the BLF log viewer, signal plotter, and DBC/LDF library manager.
+A practical manual for using CANdata — the BLF log viewer, signal plotter, and DBC/LDF library manager.
 
 ---
 
@@ -239,7 +239,7 @@ Click **Apply to Plot** at the top of the right column to write the current vers
 
 ## Export & Import Libraries
 
-Move a library to another machine as a single `.cvlib` file. can-viewer makes no network connections.
+Move a library to another machine as a single `.cvlib` file. CANdata makes no network connections.
 
 ### Export
 
@@ -306,7 +306,7 @@ Triggered by clicking the file segment when clickable. See [Loading BLF Files](#
 
 ## Keyboard Shortcuts
 
-can-viewer has no global hotkey registry. Shortcuts are per-view.
+CANdata has no global hotkey registry. Shortcuts are per-view.
 
 ### Log view
 
@@ -344,7 +344,7 @@ The minimize / maximize / close buttons in the top-right are mouse-only.
 
 ### Saved to disk (`multi_channel_config.json`)
 
-can-viewer is portable: everything it saves lives in the folder that holds the executable, never in the working directory or your user profile. Copy that folder to move the whole setup. Pretty-printed JSON. Saved on:
+CANdata is portable: everything it saves lives in the folder that holds the executable, never in the working directory or your user profile. Copy that folder to move the whole setup. Pretty-printed JSON. Saved on:
 
 - Create / delete library
 - Add / delete version
@@ -366,13 +366,13 @@ DBC/LDF files are copied into `libraries/<lib>/<version>/<channel>/` when you ad
 
 ```
 <exe folder>/
-├── can-viewer.exe
+├── candata.exe
 ├── multi_channel_config.json
 ├── signal_sets.json
 └── libraries/
 ```
 
-Because of this, install can-viewer somewhere you can write to (the default per-user install is fine; `Program Files` for all users is not).
+Because of this, install CANdata somewhere you can write to (the default per-user install is fine; `Program Files` for all users is not).
 
 ### In-memory only (not persisted)
 
@@ -399,12 +399,12 @@ The file loaded but had parse errors. Click the segment to open the Loaded Files
 
 ### Import fails
 
-- The file must be a `.cvlib` file exported by can-viewer. A newer format version than this build understands is rejected.
+- The file must be a `.cvlib` file exported by CANdata (or by can-viewer). A newer format version than this build understands is rejected.
 - Check the status message at the bottom for the reason.
 
 ### A channel path is red: "Remote paths are not supported"
 
-The channel points at an `http://` or `https://` URL, probably left over from the old LAN sharing feature. can-viewer only reads local files. Edit the channel (✎) and pick a local `.dbc`/`.ldf` file.
+The channel points at an `http://` or `https://` URL, probably left over from the old LAN sharing feature. CANdata only reads local files. Edit the channel (✎) and pick a local `.dbc`/`.ldf` file.
 
 ### Changes don't persist across restarts
 

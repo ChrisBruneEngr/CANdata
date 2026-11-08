@@ -235,7 +235,7 @@ pub enum Database {
 
 /// True when a database path is an http(s) URL.
 ///
-/// can-viewer only reads databases from local files; remote paths (left over
+/// CANdata only reads databases from local files; remote paths (left over
 /// from the removed LAN sharing feature) are treated as errors.
 pub fn is_remote_path(path: &str) -> bool {
     let lowered = path.trim().to_ascii_lowercase();

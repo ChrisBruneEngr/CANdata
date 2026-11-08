@@ -1,4 +1,4 @@
-# 构建 can-viewer 安装程序
+# 构建 CANdata 安装程序
 # 此脚本会编译程序并使用 Inno Setup 创建安装包
 
 param(
@@ -7,7 +7,7 @@ param(
 )
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "can-viewer 安装程序构建脚本 v$Version" -ForegroundColor Cyan
+Write-Host "CANdata 安装程序构建脚本 v$Version" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -29,7 +29,7 @@ Write-Host ""
 
 # 2. 编译 Release 版本
 Write-Host "📦 步骤 2: 编译 Release 版本..." -ForegroundColor Green
-cargo build --release -p viewer
+cargo build --release -p candata
 if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ 编译失败！" -ForegroundColor Red
     exit 1
@@ -87,14 +87,14 @@ Write-Host "✅ 构建完成！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "安装程序位置:" -ForegroundColor Yellow
-Write-Host "  installer-output\can-viewer-Setup-v$Version.exe" -ForegroundColor White
+Write-Host "  installer-output\candata-Setup-v$Version.exe" -ForegroundColor White
 Write-Host ""
 Write-Host "您可以分发此安装程序给用户。" -ForegroundColor Cyan
 Write-Host ""
 
 # 显示文件信息
-if (Test-Path "installer-output\can-viewer-Setup-v$Version.exe") {
-    $fileInfo = Get-Item "installer-output\can-viewer-Setup-v$Version.exe"
+if (Test-Path "installer-output\candata-Setup-v$Version.exe") {
+    $fileInfo = Get-Item "installer-output\candata-Setup-v$Version.exe"
     $fileSizeMB = [math]::Round($fileInfo.Length / 1MB, 2)
     Write-Host "文件大小: $fileSizeMB MB" -ForegroundColor White
     Write-Host "创建时间: $($fileInfo.CreationTime)" -ForegroundColor White

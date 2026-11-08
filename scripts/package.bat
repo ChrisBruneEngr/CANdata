@@ -1,7 +1,7 @@
 @echo off
-REM can-viewer 快速打包脚本
+REM CANdata 快速打包脚本
 echo ========================================
-echo can-viewer 打包工具
+echo CANdata 打包工具
 echo ========================================
 echo.
 

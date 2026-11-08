@@ -1,12 +1,12 @@
-//! Where can-viewer keeps its files.
+//! Where CANdata keeps its files.
 //!
-//! can-viewer is portable: everything it saves lives in the folder that holds
+//! CANdata is portable: everything it saves lives in the folder that holds
 //! the executable, never in the current working directory or a per-user
 //! profile folder. Copying that folder copies the whole setup.
 //!
 //! ```text
 //! <exe folder>/
-//! ├── can-viewer.exe
+//! ├── candata.exe
 //! ├── multi_channel_config.json   channel mappings + library definitions
 //! ├── signal_sets.json            saved plot signal sets
 //! └── libraries/                  copies of each library's DBC/LDF files

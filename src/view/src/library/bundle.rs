@@ -42,6 +42,8 @@ use std::path::{Path, PathBuf};
 /// File extension for library export files.
 pub const BUNDLE_EXTENSION: &str = "cvlib";
 
+/// Format tag written into every `.cvlib`. It keeps the original can-viewer
+/// name on purpose: changing it would make existing library files unreadable.
 const BUNDLE_FORMAT: &str = "can-viewer-library";
 const BUNDLE_FORMAT_VERSION: u32 = 1;
 
@@ -182,17 +184,17 @@ pub fn import_libraries(
     let content = std::fs::read_to_string(src)
         .map_err(|e| format!("Cannot read '{}': {}", src.display(), e))?;
     let bundle: LibraryBundle = serde_json::from_str(&content)
-        .map_err(|e| format!("'{}' is not a can-viewer library file: {}", src.display(), e))?;
+        .map_err(|e| format!("'{}' is not a CANdata library file: {}", src.display(), e))?;
 
     if bundle.format != BUNDLE_FORMAT {
         return Err(format!(
-            "'{}' is not a can-viewer library file",
+            "'{}' is not a CANdata library file",
             src.display()
         ));
     }
     if bundle.format_version > BUNDLE_FORMAT_VERSION {
         return Err(format!(
-            "'{}' was made by a newer can-viewer (format {}); this version reads format {}",
+            "'{}' was made by a newer CANdata (format {}); this version reads format {}",
             src.display(),
             bundle.format_version,
             BUNDLE_FORMAT_VERSION

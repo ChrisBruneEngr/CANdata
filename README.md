@@ -1,15 +1,15 @@
 <div align="center">
 
-# can-viewer
+# CANdata
 
-![can-viewer Logo](assets/svg/logo-256x256.svg)
+![CANdata Logo](assets/svg/logo-256x256.svg)
 
 **Open-source cross-platform CAN/LIN bus data analysis tool**
 
-[![Build](https://img.shields.io/github/actions/workflow/status/cantool/can-viewer/build.yml?branch=main&style=flat-square)](https://github.com/cantool/can-viewer/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/ChrisBruneEngr/CANdata/build.yml?branch=main&style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE.txt)
 [![Rust](https://img.shields.io/badge/rust-stable-orange?style=flat-square)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-lightgrey?style=flat-square)](https://github.com/cantool/can-viewer/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-lightgrey?style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/releases)
 
 Fully open source — your ⭐ keeps development going!
 
@@ -19,7 +19,7 @@ Fully open source — your ⭐ keeps development going!
 
 ## Overview
 
-`can-viewer` is a high-performance automotive bus analysis tool built in Rust. It parses Vector BLF log files, decodes signals against DBC / LDF databases, and renders interactive waveform plots in a [GPUI](https://gpui.rs/)-accelerated desktop UI. Built for engineers who need to inspect large recordings without waiting on slow Java-based tools.
+`CANdata` is a high-performance automotive bus analysis tool built in Rust. It parses Vector BLF log files, decodes signals against DBC / LDF databases, and renders interactive waveform plots in a [GPUI](https://gpui.rs/)-accelerated desktop UI. Built for engineers who need to inspect large recordings without waiting on slow Java-based tools.
 
 A typical session: drop a `.blf` recording onto the window, activate a DBC database for the matching channel, browse the decoded log, then plot selected signals to scrub through time. Multiple recordings can be loaded side-by-side on a single merged timeline.
 
@@ -71,12 +71,12 @@ A typical session: drop a `.blf` recording onto the window, activate a DBC datab
 sudo apt-get install libxkbcommon-dev libx11-dev libegl1-mesa-dev
 
 # Build and run
-git clone https://github.com/cantool/can-viewer.git
-cd can-viewer
-cargo run --release --bin viewer
+git clone https://github.com/ChrisBruneEngr/CANdata.git
+cd CANdata
+cargo run --release --bin candata
 ```
 
-Pre-built binaries: [Releases](https://github.com/cantool/can-viewer/releases) (Windows / macOS / Linux)
+Pre-built binaries: [Releases](https://github.com/ChrisBruneEngr/CANdata/releases) (Windows / macOS / Linux)
 
 ### Try it with demo data
 
@@ -100,7 +100,7 @@ Drop `demo.blf` onto the window, activate `demo.dbc` on channel 1, then switch t
 
 Drop semantics: only `.blf` is accepted via drag (use File menu for `.bin`); folders are expanded one level deep; > 1 GB total triggers a confirmation; mid-load drops cancel the in-flight load and queue the new one.
 
-can-viewer is portable: configuration (`multi_channel_config.json`), signal sets (`signal_sets.json`) and library files (`libraries/`) are all saved next to the binary. It makes no network connections.
+CANdata is portable: configuration (`multi_channel_config.json`), signal sets (`signal_sets.json`) and library files (`libraries/`) are all saved next to the binary. It makes no network connections.
 
 📖 **Full user guide:** [docs/USAGE.md](docs/USAGE.md) — window layout, log/plot views, library management, signal sets, library export/import, keyboard shortcuts, troubleshooting.
 

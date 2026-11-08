@@ -1,16 +1,16 @@
-//! CanViewerApp Rendering Implementation
+//! CanDataApp Rendering Implementation
 //!
-//! This file contains all rendering methods for CanViewerApp.
+//! This file contains all rendering methods for CanDataApp.
 //! Separated from impls.rs to improve code organization and reduce file size.
 
-use super::state::{AppView, CanViewerApp, ScrollbarDragState};
+use super::state::{AppView, CanDataApp, ScrollbarDragState};
 use crate::ChannelType;
 use crate::rendering::{calculate_column_widths, render_message_row_static_with_widths};
 use blf::{LogObject, read_blf_from_file};
 use gpui::{prelude::*, *};
 use gpui_component::input::InputState;
 
-impl CanViewerApp {
+impl CanDataApp {
     // ===== Rendering Methods =====
     // All rendering methods are organized in this section for better maintainability
 
@@ -20,8 +20,8 @@ impl CanViewerApp {
         use crate::ui::views::library_management::render_library_management_view;
 
         // TODO: wire up FilterBar for Library view in follow-up commit.
-        // render_library_management_view takes &LibraryManager (not &CanViewerApp),
-        // so wiring requires either threading an Entity<CanViewerApp> through its
+        // render_library_management_view takes &LibraryManager (not &CanDataApp),
+        // so wiring requires either threading an Entity<CanDataApp> through its
         // signature or wrapping the call here with a FilterBar child added to
         // this outer div. Deferred to keep this commit's surface small.
 
@@ -145,7 +145,7 @@ impl CanViewerApp {
                 .collect(),
         }
     }
-    fn render_log_view(&self, view: Entity<CanViewerApp>) -> impl IntoElement {
+    fn render_log_view(&self, view: Entity<CanDataApp>) -> impl IntoElement {
         // Clone view for use in multiple closures
         let view_clone1 = view.clone();
         let view_clone2 = view.clone();
@@ -1203,7 +1203,7 @@ impl CanViewerApp {
     fn render_channel_filter_dropdown(
         &self,
         parent: gpui::Div,
-        view: Entity<CanViewerApp>,
+        view: Entity<CanDataApp>,
         _ch_width: gpui::Pixels,
         time_width: gpui::Pixels,
     ) -> gpui::Div {
@@ -1348,7 +1348,7 @@ impl CanViewerApp {
                                                 move |_event, _window, cx| {
                                                     cx.stop_propagation();
                                                     eprintln!("Selected Channel: {}", channel);
-                                                    view.update(cx, |app: &mut CanViewerApp, cx: &mut Context<CanViewerApp>| {
+                                                    view.update(cx, |app: &mut CanDataApp, cx: &mut Context<CanDataApp>| {
                                                         app.channel_filter = Some(channel);
                                                         app.channel_filter_text =
                                                             channel.to_string().into();
@@ -1527,7 +1527,7 @@ impl CanViewerApp {
     }
 }
 
-impl Render for CanViewerApp {
+impl Render for CanDataApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Update container height based on current window size
         self.update_container_height(window);
@@ -2026,7 +2026,7 @@ impl Render for CanViewerApp {
                     let view_for_github = view.clone();
                     let view_for_feedback = view.clone();
                     let view_for_about = view.clone();
-                    let version = env!("CAN_VIEWER_VERSION");
+                    let version = env!("CANDATA_VERSION");
                     div()
                         .absolute()
                         .top(px(36.))
@@ -2043,7 +2043,7 @@ impl Render for CanViewerApp {
                         .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
                             cx.stop_propagation();
                         })
-                        // About can-viewer
+                        // About CANdata
                         .child(
                             div()
                                 .px_3()
@@ -2059,9 +2059,9 @@ impl Render for CanViewerApp {
                                         let v = version.clone();
                                         cx.spawn(async move |_cx| {
                                             let _ = rfd::AsyncMessageDialog::new()
-                                                .set_title("About can-viewer")
+                                                .set_title("About CANdata")
                                                 .set_description(&format!(
-                                                    "can-viewer v{}\n\nOpen-source cross-platform CAN/LIN bus data analysis tool\n\nhttps://github.com/cantool/can-viewer",
+                                                    "CANdata v{}\n\nOpen-source cross-platform CAN/LIN bus data analysis tool\n\nhttps://github.com/ChrisBruneEngr/CANdata",
                                                     v
                                                 ))
                                                 .set_buttons(rfd::MessageButtons::Ok)
@@ -2076,7 +2076,7 @@ impl Render for CanViewerApp {
                                         });
                                     }
                                 })
-                                .child(format!("About can-viewer v{}", version)),
+                                .child(format!("About CANdata v{}", version)),
                         )
                         // Separator
                         .child(
@@ -2097,7 +2097,7 @@ impl Render for CanViewerApp {
                                 .cursor_pointer()
                                 .on_mouse_down(gpui::MouseButton::Left, move |_event, _window, cx| {
                                     cx.stop_propagation();
-                                    cx.open_url("https://github.com/cantool/can-viewer");
+                                    cx.open_url("https://github.com/ChrisBruneEngr/CANdata");
                                     view_for_github.update(cx, |app, cx| {
                                         app.show_help_menu = false;
                                         cx.notify();
@@ -2116,7 +2116,7 @@ impl Render for CanViewerApp {
                                 .cursor_pointer()
                                 .on_mouse_down(gpui::MouseButton::Left, move |_event, _window, cx| {
                                     cx.stop_propagation();
-                                    cx.open_url("mailto:admin@ucan.me?subject=can-viewer%20Feedback");
+                                    cx.open_url("mailto:admin@ucan.me?subject=CANdata%20Feedback");
                                     view_for_feedback.update(cx, |app, cx| {
                                         app.show_help_menu = false;
                                         cx.notify();

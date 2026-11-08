@@ -1,4 +1,4 @@
-VERSION "can-viewer demo database"
+VERSION "CANdata demo database"
 
 NS_ :
 	NS_DESC_

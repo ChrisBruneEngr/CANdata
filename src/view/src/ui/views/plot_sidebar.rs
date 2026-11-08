@@ -4,7 +4,7 @@
 //! builds the flattened, filtered list of sidebar items (unit-testable).
 //! `render_signal_sidebar` wraps it in a `uniform_list`.
 
-use crate::app::CanViewerApp;
+use crate::app::CanDataApp;
 use crate::models::{ChannelMapping, SignalListMode};
 use gpui::prelude::*;
 use gpui::*;
@@ -70,7 +70,7 @@ pub enum SidebarItem {
 
 /// Render a single sidebar item. Click handlers for ChannelHeader / MessageHeader
 /// toggle fold state via `toggle_channel_expanded` / `toggle_message_expanded`.
-pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> AnyElement {
+pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanDataApp>) -> AnyElement {
     match item {
         SidebarItem::ChannelHeader { name, ch_id, is_can, is_loaded, mapping, is_expanded, selected_count } => {
             let lib_id = mapping.as_ref().and_then(|m| m.library_id.clone()).unwrap_or_default();
@@ -287,8 +287,8 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanViewerApp>) -> An
 
 /// Build the sidebar items for the layout chosen in Settings.
 ///
-/// Pure function: reads only `&CanViewerApp`, no cx / window / side effects.
-pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
+/// Pure function: reads only `&CanDataApp`, no cx / window / side effects.
+pub fn extract_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
     match app.app_config.signal_list_mode {
         SignalListMode::Grouped => extract_grouped_signal_items(app),
         SignalListMode::Alphabetical => extract_alphabetical_signal_items(app),
@@ -296,7 +296,7 @@ pub fn extract_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
 }
 
 /// Count selected signals per channel (for the ChannelHeader badge).
-fn selected_counts_by_channel(app: &CanViewerApp) -> std::collections::HashMap<u16, usize> {
+fn selected_counts_by_channel(app: &CanDataApp) -> std::collections::HashMap<u16, usize> {
     let mut selected_by_channel = std::collections::HashMap::new();
     for sig_id in &app.selected_signals {
         let parts: Vec<&str> = sig_id.split(':').collect();
@@ -318,7 +318,7 @@ pub fn signal_label(name: &str, unit: &str) -> String {
 }
 
 /// The colour a signal is plotted in, using the first lane that plots it.
-fn plot_color(app: &CanViewerApp, signal_id: &str) -> Option<Hsla> {
+fn plot_color(app: &CanDataApp, signal_id: &str) -> Option<Hsla> {
     app.plot_lanes
         .first_position(signal_id)
         .map(super::chart_view::lane_color)
@@ -332,7 +332,7 @@ fn message_matches(name: &str, id: u32, filter_text: &str) -> bool {
 
 /// Build one alphabetical list of signals across all loaded channels. Channels
 /// that still need loading stay listed first, since their Load button lives there.
-fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
+fn extract_alphabetical_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
     struct Entry {
         sort_name: String,
         name: String,
@@ -428,7 +428,7 @@ fn extract_alphabetical_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
 ///
 /// Search filter non-empty → force-expands matching channels/messages
 /// without modifying `expanded_channels` / `expanded_messages`.
-fn extract_grouped_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
+fn extract_grouped_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
     let mut items = Vec::new();
     let filter_text = app.signal_filter_text.to_lowercase();
     let force_expand = !filter_text.is_empty();
@@ -597,7 +597,7 @@ fn extract_grouped_signal_items(app: &CanViewerApp) -> Vec<SidebarItem> {
 
 /// Add a header, with its Load button, for each configured channel not yet loaded.
 fn push_unloaded_channels(
-    app: &CanViewerApp,
+    app: &CanDataApp,
     items: &mut Vec<SidebarItem>,
     loaded_channels: &std::collections::HashSet<u16>,
     filter_text: &str,
@@ -642,7 +642,7 @@ pub enum SetDropdownItem {
 }
 
 /// Pure function: build the list of items shown in the signal-sets dropdown.
-pub fn build_set_dropdown_items(app: &CanViewerApp) -> Vec<SetDropdownItem> {
+pub fn build_set_dropdown_items(app: &CanDataApp) -> Vec<SetDropdownItem> {
     let Some(lib_id) = &app.app_config.active_library_id else {
         return vec![SetDropdownItem::Placeholder("Activate a signal library first".into())];
     };
@@ -669,9 +669,9 @@ pub fn build_set_dropdown_items(app: &CanViewerApp) -> Vec<SetDropdownItem> {
 /// + bottom action bar with "Clear all" and "Plot N signals" buttons.
 pub fn render_signal_sidebar(
     _window: &mut Window,
-    app: &CanViewerApp,
-    view: Entity<CanViewerApp>,
-    cx: &mut Context<CanViewerApp>,
+    app: &CanDataApp,
+    view: Entity<CanDataApp>,
+    cx: &mut Context<CanDataApp>,
 ) -> impl IntoElement {
     let items = extract_signal_items(app);
     let item_count = items.len();
@@ -867,9 +867,9 @@ pub fn render_signal_sidebar(
 /// of the sidebar root — that way it paints on top of the search box, signal
 /// list, and bottom action bar instead of being stacked under them.
 fn render_signal_set_dropdown_trigger(
-    app: &CanViewerApp,
-    _view: Entity<CanViewerApp>,
-    cx: &mut Context<CanViewerApp>,
+    app: &CanDataApp,
+    _view: Entity<CanDataApp>,
+    cx: &mut Context<CanDataApp>,
 ) -> impl IntoElement {
     let items = build_set_dropdown_items(app);
     let is_open = app.show_signal_set_dropdown;
@@ -926,9 +926,9 @@ fn render_signal_set_dropdown_trigger(
 /// LAST child of the sidebar root so it paints on top of all other sidebar
 /// content. Returns `None` when the dropdown is closed or disabled.
 fn render_signal_set_dropdown_popup(
-    app: &CanViewerApp,
-    view: Entity<CanViewerApp>,
-    cx: &mut Context<CanViewerApp>,
+    app: &CanDataApp,
+    view: Entity<CanDataApp>,
+    cx: &mut Context<CanDataApp>,
 ) -> Option<AnyElement> {
     if !app.show_signal_set_dropdown {
         return None;
@@ -1065,9 +1065,9 @@ fn render_signal_set_dropdown_popup(
 /// 取消 button aborts. The Input entity is created lazily in impls_rendering.rs
 /// render loop (Sub-step 0b) and bound here.
 fn render_save_set_input_row(
-    app: &CanViewerApp,
-    view: Entity<CanViewerApp>,
-    _cx: &mut Context<CanViewerApp>,
+    app: &CanDataApp,
+    view: Entity<CanDataApp>,
+    _cx: &mut Context<CanDataApp>,
 ) -> AnyElement {
     let input_entity = app.signal_set_name_input.clone();
     let view_for_cancel = view.clone();
@@ -1128,8 +1128,8 @@ mod tests {
     use crate::models::{ChannelMapping, ChannelType};
 
     /// Helper: an app with one unloaded channel mapping (no DBC loaded).
-    fn app_with_unloaded_channel(ch_id: u16, ch_type: ChannelType) -> CanViewerApp {
-        let mut app = CanViewerApp::new_state();
+    fn app_with_unloaded_channel(ch_id: u16, ch_type: ChannelType) -> CanDataApp {
+        let mut app = CanDataApp::new_state();
         app.app_config.mappings.push(ChannelMapping {
             channel_type: ch_type,
             channel_id: ch_id,
@@ -1142,8 +1142,8 @@ mod tests {
     }
 
     /// App with active library `lib_x` and a given list of (set_name, count) sets under it.
-    fn app_with_sets(active_lib_id: Option<&str>, sets: Vec<(&str, usize)>, active_set: Option<(&str, &str)>) -> CanViewerApp {
-        let mut app = CanViewerApp::new_state();
+    fn app_with_sets(active_lib_id: Option<&str>, sets: Vec<(&str, usize)>, active_set: Option<(&str, &str)>) -> CanDataApp {
+        let mut app = CanDataApp::new_state();
         if let Some(id) = active_lib_id {
             app.app_config.active_library_id = Some(id.to_string());
             let store_sets: Vec<_> = sets.into_iter().map(|(name, n)| crate::library::signal_sets::SignalSet {

@@ -3,11 +3,11 @@
 //! Moves signal libraries between machines as `.cvlib` files
 //! (see `crate::library::bundle` for the file format).
 
-use crate::app::CanViewerApp;
+use crate::app::CanDataApp;
 use crate::library::bundle::{self, BUNDLE_EXTENSION};
 use gpui::Context;
 
-impl CanViewerApp {
+impl CanDataApp {
     /// Ask where to save, then export the selected library to a `.cvlib` file.
     pub fn export_selected_library(&mut self, cx: &mut Context<Self>) {
         let library = match self
@@ -32,7 +32,7 @@ impl CanViewerApp {
         cx.spawn(async move |this, cx| {
             let Some(file) = rfd::AsyncFileDialog::new()
                 .set_title("Export Library")
-                .add_filter("can-viewer Library", &[BUNDLE_EXTENSION])
+                .add_filter("CANdata Library", &[BUNDLE_EXTENSION])
                 .set_file_name(&default_name)
                 .save_file()
                 .await
@@ -59,7 +59,7 @@ impl CanViewerApp {
         cx.spawn(async move |this, cx| {
             let Some(file) = rfd::AsyncFileDialog::new()
                 .set_title("Import Library")
-                .add_filter("can-viewer Library", &[BUNDLE_EXTENSION])
+                .add_filter("CANdata Library", &[BUNDLE_EXTENSION])
                 .pick_file()
                 .await
             else {

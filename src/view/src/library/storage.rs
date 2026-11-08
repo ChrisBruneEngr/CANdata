@@ -6,7 +6,7 @@ pub fn libraries_base_path(config_file_path: Option<&Path>) -> PathBuf {
     if let Some(dir) = config_file_path.and_then(|p| p.parent()) {
         return dir.join("libraries");
     }
-    // can-viewer is portable: libraries live next to the executable.
+    // CANdata is portable: libraries live next to the executable.
     crate::config::paths::app_dir().join("libraries")
 }
 

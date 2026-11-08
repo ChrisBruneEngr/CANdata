@@ -359,7 +359,7 @@ pub fn render_message_row_static_with_widths(
     start_time: Option<chrono::NaiveDateTime>,
     decimal: bool,
     disable_hover: bool,
-    view: gpui::Entity<crate::app::CanViewerApp>,
+    view: gpui::Entity<crate::app::CanDataApp>,
     selected: bool,
 ) -> gpui::AnyElement {
     use gpui::{div, prelude::*, rgb};

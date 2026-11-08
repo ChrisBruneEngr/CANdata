@@ -47,7 +47,7 @@ pub struct ScrollbarDragState {
 }
 
 /// Main application state
-pub struct CanViewerApp {
+pub struct CanDataApp {
     // View state
     pub current_view: AppView,
 
@@ -231,8 +231,8 @@ pub enum PendingAddChannelFocus {
     ChannelBlur,
 }
 
-impl CanViewerApp {
-    /// Create a new CanViewerApp instance with default state (used by tests)
+impl CanDataApp {
+    /// Create a new CanDataApp instance with default state (used by tests)
     #[cfg(test)]
     pub fn new_state() -> Self {
         Self {

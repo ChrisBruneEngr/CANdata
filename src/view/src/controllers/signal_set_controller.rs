@@ -1,6 +1,6 @@
 //! Signal set controller — business logic for save/apply/clear/delete operations.
 
-use crate::app::CanViewerApp;
+use crate::app::CanDataApp;
 use crate::library::signal_sets::{
     SignalSet, build_selected_signals_from_set, layout_from_set, parse_signal_id,
     save_signal_set_store, saved_lanes_from_layout,
@@ -10,9 +10,9 @@ use gpui::Context;
 /// Save the current `selected_signals` and lanes as a new signal set under the active library.
 /// Validates name, requires an active library, requires ≥1 parseable signal.
 pub fn save_current_selection_as_signal_set(
-    app: &mut CanViewerApp,
+    app: &mut CanDataApp,
     name: &str,
-    cx: &mut Context<CanViewerApp>,
+    cx: &mut Context<CanDataApp>,
 ) {
     let name = name.trim().to_string();
     if name.is_empty() {
@@ -75,10 +75,10 @@ pub fn save_current_selection_as_signal_set(
 
 /// Apply a named set to `selected_signals` and the lanes, and trigger plot refresh.
 pub fn apply_signal_set(
-    app: &mut CanViewerApp,
+    app: &mut CanDataApp,
     library_id: &str,
     set_name: &str,
-    cx: &mut Context<CanViewerApp>,
+    cx: &mut Context<CanDataApp>,
 ) {
     let library = match app.library_manager.find_library(library_id) {
         Some(lib) => lib.clone(),
@@ -117,7 +117,7 @@ pub fn apply_signal_set(
 
 /// Clear the active set selection AND clear selected_signals.
 /// Triggered by the dropdown's "✕" item.
-pub fn clear_active_signal_set(app: &mut CanViewerApp, cx: &mut Context<CanViewerApp>) {
+pub fn clear_active_signal_set(app: &mut CanDataApp, cx: &mut Context<CanDataApp>) {
     app.active_signal_set = None;
     app.selected_signals.clear();
     crate::ui::views::chart_view::extract_and_update_series_data(app);
@@ -127,10 +127,10 @@ pub fn clear_active_signal_set(app: &mut CanViewerApp, cx: &mut Context<CanViewe
 
 /// Delete a set from the store (no UI in this spec; symmetric API).
 pub fn delete_signal_set(
-    app: &mut CanViewerApp,
+    app: &mut CanDataApp,
     library_id: &str,
     set_name: &str,
-    cx: &mut Context<CanViewerApp>,
+    cx: &mut Context<CanDataApp>,
 ) {
     let mut removed = false;
     if let Some(sets) = app.signal_set_store.sets_by_library.get_mut(library_id) {
