@@ -257,140 +257,129 @@ impl BlfParser {
     }
 
     /// Parses the data slice and returns a vector of log objects and a vector of errors.
+    ///
+    /// The top level of a BLF file (after the `FileStatistics` header, which the
+    /// caller handles) is a series of `LogContainer` objects. Parsing runs in
+    /// three phases:
+    ///
+    /// 1. A sequential scan collects the container headers. Each container is
+    ///    followed by `object_size % 4` padding bytes (Vector's rule, see
+    ///    [`next_object_pos`]). A stretch of bytes that isn't a container is
+    ///    skipped up to the next `LOBJ` signature and reported as one error.
+    /// 2. The containers are decompressed in parallel.
+    /// 3. The decompressed bytes are joined into one stream and the inner
+    ///    objects are parsed from it. The joining matters: Vector writers fill
+    ///    each container to a fixed size, so an inner object can start in one
+    ///    container and end in the next. To keep this phase parallel, the
+    ///    stream is cut into chunks at object boundaries first.
     pub fn parse(&self, data: &[u8]) -> BlfParseResult<(Vec<LogObject>, Vec<BlfParseError>, u64)> {
-        let mut cursor = Cursor::new(data);
         let mut all_objects = Vec::new();
         let mut all_errors = Vec::new();
-        let data_len = cursor.get_ref().len();
+        let data_len = data.len();
 
         if self.debug {
             println!("Starting to parse {} bytes of BLF data", data_len);
         }
 
-        // The top-level of a BLF file (after the initial FileStatistics header, which is handled elsewhere)
-        // consists of a series of LogContainer objects. LogContainers are independent:
-        // each has its own zlib stream and inner objects that don't reference other containers.
-        // We exploit this by collecting container descriptors in a single pass, then
-        // decompressing + parsing their inner objects in parallel with rayon. Per-container
-        // results are collected back in original file order so timestamps stay monotonic.
+        // Phase 1: find the containers.
         let mut pending_containers: Vec<(usize, ObjectHeaderBase)> = Vec::new();
+        let mut pos = 0usize;
 
-        while (cursor.position() as usize) < data_len {
-            let start_pos = cursor.position();
+        // A container is at least a 16-byte header plus 16 bytes of metadata.
+        while pos + 32 <= data_len {
+            let mut cursor = Cursor::new(data);
+            cursor.set_position(pos as u64);
 
-            // Check if we have enough data for a header
-            if (cursor.position() as usize) + 32 > data_len {
-                if self.debug {
-                    println!(
-                        "Not enough data remaining for a complete header at position {}",
-                        cursor.position()
-                    );
-                }
-                break;
-            }
-
-            let header_result = ObjectHeaderBase::read(&mut cursor).context("BlfParser.ObjectHeaderBase");
-            let header = match header_result {
-                Ok(h) => h,
-                Err(e) => {
+            let header = match ObjectHeaderBase::read(&mut cursor).context("BlfParser.ObjectHeaderBase") {
+                Ok(h) if h.object_size >= h.header_size as u32 && h.object_size >= 16 => h,
+                result => {
+                    let resume = find_next_signature(data, pos + 1).unwrap_or(data_len);
+                    let err = match result {
+                        Ok(h) => BlfParseError::UnexpectedData.context(format!(
+                            "BlfParser.ObjectHeaderBase.object_size ({} is smaller than the header)",
+                            h.object_size
+                        )),
+                        Err(e) => e,
+                    };
                     if self.debug {
-                        println!(
-                            "Failed to read object header at position {}: {:?}",
-                            start_pos, e
-                        );
+                        println!("Bad object header at offset {}: {}", pos, err);
                     }
-                    all_errors.push(e);
-                    // Try to skip some bytes and continue
-                    cursor.set_position(start_pos + 4);
+                    all_errors.push(err.context(format!(
+                        "BlfParser@0x{:X} (skipped {} bytes to the next LOBJ)",
+                        pos,
+                        resume - pos
+                    )));
+                    pos = resume;
                     continue;
                 }
             };
 
-            if self.debug {
+            if header.object_type == ObjectType::LogContainer {
+                pending_containers.push((pos, header.clone()));
+            } else if self.debug {
                 println!(
-                    "Read object header: type={:?}, size={}",
-                    header.object_type, header.object_size,
+                    "Non-container object at top level: {:?}, skipping",
+                    header.object_type
                 );
             }
-
-            // Validate object size
-            if header.object_size < header.header_size as u32 {
-                if self.debug {
-                    println!(
-                        "Invalid object size: {} < header size: {}",
-                        header.object_size, header.header_size
-                    );
-                }
-                // We don't have a specific error for this, maybe just log debug or add a custom error if strict?
-                // For now, let's treat it as a skip, but maybe we should report?
-                // all_errors.push(BlfParseError::InvalidObjectSize); // Logic for error handling
-                self.advance_cursor_to_next_object(&mut cursor, start_pos, 32);
-                continue;
-            }
-
-            if header.object_type != ObjectType::LogContainer {
-                if self.debug {
-                    println!(
-                        "Non-container object at top level: {:?}, skipping",
-                        header.object_type
-                    );
-                }
-            } else {
-                if self.debug {
-                    println!("Parsing container {}", header.object_size);
-                }
-                // Defer the actual decompress+parse to the parallel phase. Capture
-                // the byte range of this container so the worker can re-read it
-                // from the original `data` slice without copying.
-                pending_containers.push((start_pos as usize, header.clone()));
-            }
-            self.advance_cursor_to_next_object(&mut cursor, start_pos, header.object_size);
+            pos = next_object_pos(data, pos, header.object_size);
         }
 
-        let consumed = cursor.position().min(data_len as u64);
+        let consumed = pos.min(data_len) as u64;
 
-        // Parallel phase: decompress + parse_inner_objects for each container.
-        // Each task returns (container_index, Result<Vec<LogObject>, BlfParseError>).
-        // The original `data` slice is shared (read-only) across threads via &data[..].
-        let per_container_results: Vec<(usize, BlfParseResult<Vec<LogObject>>)> = pending_containers
+        // Phase 2: decompress every container in parallel. `collect()` keeps
+        // file order, which the joined stream depends on.
+        let decompressed: Vec<BlfParseResult<Vec<u8>>> = pending_containers
             .into_par_iter()
             .map(|(start_pos, header)| {
-                // Worker cursor starts at the LogContainer payload (after the
-                // ObjectHeaderBase), since LogContainer::read expects to read
-                // the compression_method field next, not the header.
+                // LogContainer::read expects the cursor just past the header.
                 let payload_start = start_pos + header.header_size as usize;
-                let mut worker_cursor = Cursor::new(&data[payload_start..]);
-                let inner_result = LogContainer::read(&mut worker_cursor, header)
-                    .context("BlfParser.LogContainer")
-                    .and_then(|container| {
-                        let mut inner_cursor = Cursor::new(&container.uncompressed_data[..]);
-                        self.parse_inner_objects(&mut inner_cursor)
-                            .context("BlfParser.parse_inner_objects")
-                    });
-                (start_pos, inner_result)
+                let payload = data.get(payload_start..).unwrap_or(&[]);
+                LogContainer::read(&mut Cursor::new(payload), header)
+                    .map(|container| container.uncompressed_data)
+                    .context(format!("BlfParser.LogContainer@0x{:X}", start_pos))
             })
             .collect();
 
-        // Sequential merge phase: preserve original container order. The
-        // pending_containers Vec was built in file order, and `into_par_iter()`
-        // preserves order through `collect()`, so iterating results in order
-        // gives us the same sequence as the old sequential code.
-        for (_start_pos, result) in per_container_results {
+        // Join the decompressed data. A container that fails to decompress
+        // breaks the stream, so the data after it starts a new segment rather
+        // than being glued onto bytes it doesn't follow.
+        let mut segments: Vec<Vec<u8>> = vec![Vec::new()];
+        for result in decompressed {
             match result {
-                Ok(objects) => {
-                    if self.debug {
-                        println!(
-                            "Successfully parsed {} objects from container",
-                            objects.len()
-                        );
-                    }
-                    all_objects.extend(objects);
-                }
+                Ok(mut bytes) => segments.last_mut().unwrap().append(&mut bytes),
                 Err(e) => {
                     if self.debug {
-                        println!("Error parsing inner objects: {:?}", e);
+                        println!("Error decompressing container: {}", e);
                     }
                     all_errors.push(e);
+                    if !segments.last().unwrap().is_empty() {
+                        segments.push(Vec::new());
+                    }
+                }
+            }
+        }
+
+        // Phase 3: parse the inner objects, chunk by chunk in parallel.
+        for segment in segments.iter().filter(|s| !s.is_empty()) {
+            let chunks = split_at_object_boundaries(segment, INNER_CHUNK_TARGET);
+            let results: Vec<BlfParseResult<Vec<LogObject>>> = chunks
+                .into_par_iter()
+                .map(|range| {
+                    let mut cursor = Cursor::new(&segment[range]);
+                    self.parse_inner_objects(&mut cursor)
+                        .context("BlfParser.parse_inner_objects")
+                })
+                .collect();
+            for result in results {
+                match result {
+                    Ok(objects) => all_objects.extend(objects),
+                    Err(e) => {
+                        if self.debug {
+                            println!("Error parsing inner objects: {:?}", e);
+                        }
+                        all_errors.push(e);
+                    }
                 }
             }
         }
@@ -618,24 +607,26 @@ impl BlfParser {
                 break;
             }
 
-            // Try to read the header, but handle the case where there's no valid object left
+            // Try to read the header, but handle the case where there's no valid object left.
+            // The error comes back wrapped in context, so match on the innermost cause.
             let header = match ObjectHeader::read(cursor).context("BlfParser.ObjectHeader") {
                 Ok(header) => header,
-                Err(BlfParseError::InvalidContainerMagic) => {
-                    // If we can't read a valid header due to magic number, skip one byte and try again
-                    cursor.set_position(start_pos + 1);
-                    continue;
-                }
-                Err(BlfParseError::UnexpectedEof) => {
-                    // End of file reached, return what we have
-                    break;
-                }
-                Err(e) => {
-                    all_errors.push(e);
-                    // Try to skip some bytes and continue
-                    cursor.set_position(start_pos + 4);
-                    continue;
-                }
+                Err(e) => match root_cause(&e) {
+                    BlfParseError::InvalidContainerMagic => {
+                        // Not at an object: jump to the next signature.
+                        let data = *cursor.get_ref();
+                        let resume = find_next_signature(data, start_pos as usize + 1).unwrap_or(data_len);
+                        cursor.set_position(resume as u64);
+                        continue;
+                    }
+                    // Trailing bytes too short for a header: return what we have.
+                    BlfParseError::UnexpectedEof => break,
+                    _ => {
+                        all_errors.push(e);
+                        cursor.set_position(start_pos + 4);
+                        continue;
+                    }
+                },
             };
 
             // LogContainers should not be nested. If they are, we skip them to avoid infinite recursion.
@@ -656,11 +647,8 @@ impl BlfParser {
                         break;
                     }
                     Err(e) => {
+                        // Skip the bad object and carry on with the next one.
                         all_errors.push(e);
-                        // Try to advance and continue
-                        let next_pos = start_pos + header.object_size as u64;
-                        cursor.set_position(next_pos.min(data_len as u64));
-                        continue;
                     }
                 }
             } else {
@@ -670,26 +658,10 @@ impl BlfParser {
                 }
             }
 
-            // 在LogContainer内部，对象已经通过add_padding进行了4字节对齐
-            // 所以我们直接使用对象大小，而不是进行额外的对齐
-            let next_pos = start_pos + header.object_size as u64;
-            // Make sure we advance the cursor position to avoid infinite loops
-            if next_pos <= start_pos {
-                // If object_size is 0 or invalid, advance by 1 byte to avoid infinite loop
-                cursor.set_position(start_pos + 1);
-            } else {
-                cursor.set_position(next_pos.min(data_len as u64));
-            }
-
-            // Additional safeguard to prevent infinite loops
-            if header.object_size == 0 {
-                cursor.set_position(start_pos + 1);
-            }
-
-            // Ensure 4-byte alignment
-            let current_pos = cursor.position();
-            let aligned_pos = (current_pos + 3) & !3; // Round up to next multiple of 4
-            cursor.set_position(aligned_pos.min(data_len as u64));
+            let data = *cursor.get_ref();
+            let next_pos = next_object_pos(data, start_pos as usize, header.object_size);
+            // Always move forward, even for a corrupt object_size of 0.
+            cursor.set_position(next_pos.max(start_pos as usize + 1) as u64);
         }
 
         // If we have errors but also successfully parsed objects, return the objects
@@ -703,27 +675,6 @@ impl BlfParser {
         }
     }
 
-    /// Advances the cursor to the start of the next object, including padding.
-    /// This logic is based on `is.seekg(objectSize % 4, std::ios_base::cur);` from the C++ source.
-    /// The C++ implementation `objectSize % 4` is a non-standard way to achieve 4-byte alignment
-    /// that happens to work in most cases but is conceptually incorrect when `objectSize` is a multiple of 4.
-    /// We use a more robust and idiomatic method `(object_size + 3) & !3` to round up to the next
-    /// multiple of 4, which correctly handles all cases and clarifies the intent of alignment.
-    fn advance_cursor_to_next_object(
-        &self,
-        cursor: &mut Cursor<&[u8]>,
-        start_pos: u64,
-        object_size: u32,
-    ) {
-        let data_len = cursor.get_ref().len() as u64;
-        let padded_size = (object_size as u64 + 3) & !3;
-        let next_pos = start_pos + padded_size;
-        // Clamp to data_len so consumed bytes never exceed file size
-        // (avoids StatusBar showing >100%).
-        let clamped = next_pos.min(data_len);
-        cursor.set_position(clamped);
-    }
-
     #[allow(dead_code)]
     fn parse_unhandled_object(&self) -> Option<LogObject> {
         // The `parse_objects` loop handles advancing the cursor to the next object.
@@ -733,6 +684,86 @@ impl BlfParser {
         // - ObjectType::MostPkt: Deprecated and should be skipped.
         // - Any other unknown ObjectType.
         None
+    }
+}
+
+/// The 4-byte signature that starts every BLF object ("LOBJ", 0x4A424F4C little-endian).
+const OBJECT_SIGNATURE: &[u8; 4] = b"LOBJ";
+
+/// Rough size of each chunk of the joined inner-object stream handed to a
+/// worker thread in phase 3 of [`BlfParser::parse`].
+const INNER_CHUNK_TARGET: usize = 1 << 20;
+
+fn has_signature_at(data: &[u8], pos: usize) -> bool {
+    data.get(pos..pos + 4) == Some(&OBJECT_SIGNATURE[..])
+}
+
+/// Position of the next `LOBJ` signature at or after `from`, if any.
+fn find_next_signature(data: &[u8], from: usize) -> Option<usize> {
+    data.get(from..)?
+        .windows(4)
+        .position(|w| w == OBJECT_SIGNATURE)
+        .map(|i| from + i)
+}
+
+/// Start of the object after the one at `start`, clamped to `data.len()`.
+///
+/// Vector's own reader skips `object_size % 4` padding bytes after an object
+/// (`is.seekg(objectSize % 4, std::ios_base::cur)`), and real files are
+/// written that way. That is NOT the same as rounding up to a multiple of 4:
+/// a 21,521-byte container is followed by 1 padding byte, not 3. Getting this
+/// wrong lands the parser 2 bytes off, where it never finds a `LOBJ` again.
+///
+/// Other readers special-case some object types (python-can skips the
+/// padding for `CAN_FD_MESSAGE_64`), and this crate's own test writers round
+/// up instead. So when the `% 4`
+/// position doesn't hold a signature but one of the alternatives does, the
+/// alternative wins.
+fn next_object_pos(data: &[u8], start: usize, object_size: u32) -> usize {
+    let size = object_size as usize;
+    let candidates = [
+        start + size + size % 4,  // Vector's rule
+        start + size,             // no padding
+        start + ((size + 3) & !3), // rounded up to a multiple of 4
+    ];
+    candidates
+        .iter()
+        .copied()
+        .find(|&p| has_signature_at(data, p))
+        .unwrap_or(candidates[0])
+        .min(data.len())
+}
+
+/// Splits a stream of inner objects into ranges of roughly `target` bytes
+/// that each start at an object boundary, so they can be parsed in parallel.
+///
+/// Only the object headers are read. If the walk hits bytes that aren't an
+/// object, everything from there on goes into the last range, where
+/// `parse_inner_objects` resynchronises on its own.
+fn split_at_object_boundaries(data: &[u8], target: usize) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut chunk_start = 0;
+    let mut pos = 0;
+    while pos + 16 <= data.len() && has_signature_at(data, pos) {
+        if pos - chunk_start >= target {
+            ranges.push(chunk_start..pos);
+            chunk_start = pos;
+        }
+        let size = u32::from_le_bytes(data[pos + 8..pos + 12].try_into().unwrap());
+        if size < 16 {
+            break;
+        }
+        pos = next_object_pos(data, pos, size);
+    }
+    ranges.push(chunk_start..data.len());
+    ranges
+}
+
+/// The innermost error under any `Context` wrappers.
+fn root_cause(err: &BlfParseError) -> &BlfParseError {
+    match err {
+        BlfParseError::Context { inner, .. } => root_cause(inner),
+        other => other,
     }
 }
 
@@ -902,5 +933,144 @@ mod tests {
             }
             other => panic!("expected Unhandled, got {:?}", other),
         }
+    }
+    fn test_can_message(id: u32, time_stamp: u64) -> CanMessage {
+        CanMessage {
+            header: ObjectHeader {
+                base: crate::objects::object_header::ObjectHeaderBase {
+                    signature: 0x4A424F4C,
+                    header_size: 32,
+                    header_version: 1,
+                    object_size: 48,
+                    object_type: ObjectType::CanMessage,
+                },
+                object_flags: 0,
+                client_index: 0,
+                object_version: 0,
+                object_time_stamp: time_stamp,
+                original_time_stamp: None,
+                time_stamp_status: None,
+                reserved: 0,
+            },
+            channel: 1,
+            flags: 0,
+            dlc: 8,
+            id,
+            data: [id as u8; 8],
+        }
+    }
+
+    /// Builds a zlib LogContainer around `payload` the way Vector writes it:
+    /// `object_size` is the exact size (often odd) and `object_size % 4`
+    /// padding bytes follow.
+    fn vector_style_container(payload: &[u8]) -> Vec<u8> {
+        use byteorder::{LittleEndian, WriteBytesExt};
+        use flate2::{write::ZlibEncoder, Compression};
+        use std::io::Write;
+
+        // Stored (uncompressed) zlib blocks: the size is payload + 11, so
+        // the container sizes in these tests are predictable.
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::none());
+        encoder.write_all(payload).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let object_size = (16 + 16 + compressed.len()) as u32;
+        let mut out = Vec::new();
+        out.write_u32::<LittleEndian>(0x4A424F4C).unwrap();
+        out.write_u16::<LittleEndian>(16).unwrap(); // header_size
+        out.write_u16::<LittleEndian>(1).unwrap(); // header_version
+        out.write_u32::<LittleEndian>(object_size).unwrap();
+        out.write_u32::<LittleEndian>(ObjectType::LogContainer as u32).unwrap();
+        out.write_u16::<LittleEndian>(2).unwrap(); // zlib
+        out.write_u16::<LittleEndian>(0).unwrap();
+        out.write_u32::<LittleEndian>(0).unwrap();
+        out.write_u32::<LittleEndian>(payload.len() as u32).unwrap();
+        out.write_u32::<LittleEndian>(0).unwrap();
+        out.extend_from_slice(&compressed);
+        out.extend(std::iter::repeat(0u8).take(object_size as usize % 4));
+        out
+    }
+
+    #[test]
+    fn test_parse_containers_with_odd_sizes_use_vector_padding() {
+        let messages: Vec<CanMessage> = (0..3).map(|i| test_can_message(0x100 + i, 1000 * i as u64)).collect();
+        let mut data = Vec::new();
+        for msg in &messages {
+            let container = vector_style_container(&serialize_can_message(msg));
+            // 32 + (48 + 11) = 91 bytes, so 3 padding bytes. Rounding up to
+            // a multiple of 4 would skip only 1 and miss the next container.
+            assert_eq!((container.len() - 3) % 4, 3);
+            data.extend_from_slice(&container);
+        }
+
+        let (objects, errors, consumed) = BlfParser::new().parse(&data).unwrap();
+
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        assert_eq!(consumed, data.len() as u64);
+        let expected: Vec<LogObject> = messages.into_iter().map(LogObject::CanMessage).collect();
+        assert_eq!(objects, expected);
+    }
+
+    #[test]
+    fn test_parse_object_split_across_containers() {
+        let first = test_can_message(0x111, 1000);
+        let second = test_can_message(0x222, 2000);
+        let third = test_can_message(0x333, 3000);
+        let stream = [
+            serialize_can_message(&first),
+            serialize_can_message(&second),
+            serialize_can_message(&third),
+        ]
+        .concat();
+
+        // Cut the stream in the middle of `second`, as Vector writers do when
+        // a container fills up.
+        let cut = 48 + 20;
+        let data = [
+            vector_style_container(&stream[..cut]),
+            vector_style_container(&stream[cut..]),
+        ]
+        .concat();
+
+        let (objects, errors, _) = BlfParser::new().parse(&data).unwrap();
+
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        assert_eq!(
+            objects,
+            vec![
+                LogObject::CanMessage(first),
+                LogObject::CanMessage(second),
+                LogObject::CanMessage(third),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_reports_one_error_per_garbage_region() {
+        let msg = test_can_message(0x123, 1000);
+        let container = vector_style_container(&serialize_can_message(&msg));
+        let data = [container.clone(), vec![0xAB; 4000], container].concat();
+
+        let (objects, errors, _) = BlfParser::new().parse(&data).unwrap();
+
+        assert_eq!(objects.len(), 2);
+        assert_eq!(errors.len(), 1, "errors: {:?}", errors);
+        assert!(errors[0].to_string().contains("skipped 4000 bytes"), "{}", errors[0]);
+    }
+
+    #[test]
+    fn test_split_at_object_boundaries_cuts_only_at_objects() {
+        let stream: Vec<u8> = (0..10).flat_map(|i| serialize_can_message(&test_can_message(i, 0))).collect();
+        let ranges = split_at_object_boundaries(&stream, 100);
+
+        assert_eq!(ranges.first().unwrap().start, 0);
+        assert_eq!(ranges.last().unwrap().end, stream.len());
+        for pair in ranges.windows(2) {
+            assert_eq!(pair[0].end, pair[1].start);
+        }
+        for r in &ranges {
+            assert_eq!(r.start % 48, 0);
+        }
+        assert!(ranges.len() > 1);
     }
 }
