@@ -1,5 +1,4 @@
 /target
-./c++/*
 crash.log
 multi_channel_config.json
 *.blf
@@ -7,3 +6,5 @@ multi_channel_config.json
 .agent/
 .claude/
 .DS_Store
+release-package/
+installer-output/

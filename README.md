@@ -8,10 +8,7 @@
 
 [![Build](https://img.shields.io/github/actions/workflow/status/ChrisBruneEngr/CANdata/build.yml?branch=main&style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE.txt)
-[![Rust](https://img.shields.io/badge/rust-stable-orange?style=flat-square)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/releases)
-
-Fully open source — your ⭐ keeps development going!
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-lightgrey?style=flat-square)](https://github.com/ChrisBruneEngr/CANdata/releases)
 
 </div>
 
@@ -19,130 +16,113 @@ Fully open source — your ⭐ keeps development going!
 
 ## Overview
 
-`CANdata` is a high-performance automotive bus analysis tool built in Rust. It parses Vector BLF log files, decodes signals against DBC / LDF databases, and renders interactive waveform plots in a [GPUI](https://gpui.rs/)-accelerated desktop UI. Built for engineers who need to inspect large recordings without waiting on slow Java-based tools.
+CANdata is a desktop tool for inspecting CAN bus recordings. It reads Vector BLF log files, decodes signals with DBC and LDF databases, and plots them in a GPU-accelerated interface built with Rust and [GPUI](https://gpui.rs/).
 
-A typical session: drop a `.blf` recording onto the window, activate a DBC database for the matching channel, browse the decoded log, then plot selected signals to scrub through time. Multiple recordings can be loaded side-by-side on a single merged timeline.
+A typical session: drop one or more `.blf` recordings onto the window, activate the DBC for each channel, browse the decoded log, then plot the signals you care about and zoom in on the interesting parts.
+
+CANdata runs on Windows 10 and 11 (x64). It is portable and makes no network connections.
 
 ---
 
 ## Features
 
-**Performance**
-- 🚀 **Rust native** — zero-copy parsing, fast startup
-- ⚡ **Parallel BLF loading** — zlib decompress runs across CPU cores via rayon; a 9 MB / 860 K-object file loads in ~280 ms warm
-- 🖥️ **GPU-accelerated UI** — built on GPUI, smooth rendering even with hundreds of thousands of rows
+**Logs and databases**
+- Reads BLF recordings with CAN, CAN FD, LIN, FlexRay and Ethernet frames
+- Decodes signals with DBC (CAN) and LDF (LIN) databases
+- Fast loading: decompression runs in parallel across CPU cores
+- Filters the log by message ID and channel
 
-**Bus & databases**
-- 🔌 **Multi-bus support** — CAN / CAN FD / LIN / FlexRay / Ethernet
-- 📚 **Multi-version signal libraries** — keep multiple DBC / LDF versions per channel; one-click activation, auto-load on startup
-- 🎯 **Signal sets** — save named channel+message+signal combinations on a library, then batch-apply them to the plot sidebar for fast replay across recordings
+**Signal libraries**
+- Keeps several versions of each DBC/LDF database per channel, with one-click activation and auto-load on startup
+- Signal sets: save a named set of channel/message/signal selections and re-apply it to any recording
+- Export a library, with its database files, to a single `.cvlib` file and import it on another machine
 
-**Log viewing**
-- 📊 **Interactive waveform plot** — zoom, pan, hover to inspect, live plot on selection, no-data placeholders for signals absent from the log
-- 🔍 **ID / channel filters** — narrow the log view by message ID or bus channel
-- ⚠️ **Parse-error surfacing** — failed parses show ⚠️ in the status bar; the Loaded Files popover lists per-file errors with `❌`
+**Plotting**
+- Interactive plot with lanes, zoom, pan, cursor readout and auto or fixed Y ranges
+- Signals with no data in the recording are marked in the plot
 
-**Multi-file & UX**
-- 📁 **Merged timeline** — load multiple BLF files in parallel; messages sorted by absolute timestamp (`measurement_start_time + object_time_stamp`), so recordings from different sessions line up
-- 🖱️ **Drag-and-drop loading** — drop `.blf` files or a folder onto the window; large files (> 1 GB) trigger a confirmation prompt
-- 📦 **Library export / import** — move a signal library, including its DBC/LDF files, to another machine as one `.cvlib` file
+**Multiple recordings**
+- Load several BLF files onto one timeline, aligned by their absolute timestamps
+- Drag and drop `.blf` files or a folder; a confirmation appears before loading more than 1 GB
+- Parse errors are flagged in the status bar, with details per file
 
 ---
 
 ## Screenshots
 
-| Log Viewer | Signal Plot |
+| Log view | Plot view |
 |:---:|:---:|
-| <img src="assets/blf_logs_screenshot_v2.png" width="400" alt="BLF Logs Viewer" /> | <img src="assets/plot_screen_v2.png" width="400" alt="Signal Plotter" /> |
+| <img src="assets/screenshots/log-view.png" width="400" alt="CANdata log view" /> | <img src="assets/screenshots/plot-view.png" width="400" alt="CANdata plot view" /> |
 
-| Signal Library Management |
+| Library view |
 |:---:|
-| <img src="assets/dbc_library_v2.png" width="600" alt="Signal Library" /> |
+| <img src="assets/screenshots/library-view.png" width="600" alt="CANdata library view" /> |
 
 ---
 
-## Quick Start
+## Install
 
-**Requirements:** Windows 10 or 11 (x64), Rust stable with the MSVC toolchain (1.85+ for edition 2024), Git
+Download the latest release from the [Releases page](https://github.com/ChrisBruneEngr/CANdata/releases):
+
+- **Installer** (`candata-Setup-vX.Y.Z.exe`): installs for the current user under `%LOCALAPPDATA%\Programs\CANdata` and adds a Start menu shortcut. No administrator rights needed.
+- **Portable ZIP** (`candata-vX.Y.Z.zip`): unzip anywhere you can write to and run `candata.exe`.
+
+Both include the user guide and a demo database with a matching recording in `samples\`.
+
+CANdata saves its settings (`multi_channel_config.json`), signal sets (`signal_sets.json`) and library files (`libraries\`) next to `candata.exe`. Copy the folder to move your whole setup. Keep it out of `C:\Program Files`, which is read-only for normal users.
+
+---
+
+## Quick start
+
+1. Start CANdata and drag a `.blf` file onto the window, or use **File → Open BLF...** (replaces what's loaded) or **File → Open Multiple BLF...** (adds to it).
+2. Click **Library**, create a library and a version, and add a channel that points to your DBC or LDF file. Activate the version.
+3. Browse the decoded frames in the **Log** view, or switch to **Plot** (bottom-left of the status bar) and select signals from the sidebar.
+
+To try it with demo data, use `samples\demo.blf` and `samples\demo.dbc` (channel 1) from the installed or unzipped folder.
+
+The [user guide](docs/USAGE.md) covers every view, library management, signal sets, export/import and troubleshooting.
+
+---
+
+## Build from source
+
+**Requirements:** Windows 10 or 11 (x64), [Rust](https://www.rust-lang.org/tools/install) stable (1.85 or later) with the MSVC toolchain, and Git.
 
 ```bash
-# Build and run
 git clone https://github.com/ChrisBruneEngr/CANdata.git
 cd CANdata
 cargo run --release --bin candata
 ```
 
-Pre-built binaries: [Releases](https://github.com/ChrisBruneEngr/CANdata/releases) (Windows installer and portable ZIP)
-
-### Try it with demo data
-
-A small demo database and matching BLF are included in the repo root:
-
-- `demo.dbc` — 6 messages (EngineStatus, VehicleSpeed, ControlCommand, TirePressure, BrakeStatus) with mixed signal types
-- `demo.blf` — 2 minutes / 6 000 CAN frames across 120 zlib-compressed LogContainers; IDs match `demo.dbc`
-
-Drop `demo.blf` onto the window, activate `demo.dbc` on channel 1, then switch to Signal Plot to see decoded signals.
-
----
-
-## Usage
-
-1. **Open log** — File → Open BLF… (single, replaces) or Open Multiple BLF… (append). Drag-and-drop also works — dropping always clears the current session and reloads.
-2. **Manage signal libraries** — Library tab → add DBC / LDF files → activate a version for the channel.
-3. **Signal sets** — on a library, save the current channel+message+signal selection as a named set. Open the dropdown from the plot sidebar header to apply (batch-select), rename, or delete.
-4. **Browse log** — Log tab shows decoded signal values per frame.
-5. **Plot waveforms** — Signal Plot tab → expand a channel/message → select signals. Supports zoom, hover, absolute time.
-6. **Manage loaded files** — when ≥ 2 files are loaded (or any file has errors), click **📂 N files** in the bottom-left status bar to open the Loaded Files popover. Remove individual files with ✕, or **Remove All**.
-
-Drop semantics: only `.blf` is accepted via drag (use File menu for `.bin`); folders are expanded one level deep; > 1 GB total triggers a confirmation; mid-load drops cancel the in-flight load and queue the new one.
-
-CANdata is portable: configuration (`multi_channel_config.json`), signal sets (`signal_sets.json`) and library files (`libraries/`) are all saved next to the binary. It makes no network connections.
-
-📖 **Full user guide:** [docs/USAGE.md](docs/USAGE.md) — window layout, log/plot views, library management, signal sets, library export/import, keyboard shortcuts, troubleshooting.
-
----
-
-## Roadmap
-
-### Done
-
-- ✅ BLF parsing core (CAN / CAN FD / LIN / FlexRay / Ethernet)
-- ✅ DBC / LDF database parsing
-- ✅ GPUI desktop UI (GPU-accelerated)
-- ✅ Message filtering (by ID and channel) and signal decoding
-- ✅ Signal waveform plot — zoom, hover, absolute time, live plot on selection, no-data placeholders
-- ✅ Multi-version signal library management (create / activate / export & import as `.cvlib` files)
-- ✅ Signal sets — named channel+message+signal collections, batch-apply to plot
-- ✅ Multi-file loading with merged timeline (Open BLF... replaces, Open Multiple BLF... appends)
-- ✅ Drag-and-drop BLF loading (in-window), folder expansion, large-file guard
-- ✅ Status bar multi-file segment with ⚠️ parse-error indicator and Loaded Files popover
-- ✅ Parallel BLF loading (rayon parallel zlib decompress + index-sort merge, ~3× faster on multi-core CPUs)
-
-### Planned
-
-- ⬜ Live streaming mode (socketcan / virtual bus)
-- ⬜ Export to CSV / JSON
-- ⬜ Diagnostic rule DSL (custom warning / error conditions)
-- ⬜ DBC generator from observed traffic
-- ⬜ Replay / re-injection (send back to bus)
-
----
-
-## Development
+The demo recording isn't stored in the repository. Generate it next to `demo.dbc` with:
 
 ```bash
-cargo test --workspace   # Run tests
-cargo fmt --all          # Format
-cargo clippy --workspace # Lint
+cargo run --release -p blf --bin gen_demo_blf
 ```
 
-For packaging scripts (portable ZIP and Inno Setup installer), see [`scripts/`](scripts/) and the [build workflow](.github/workflows/build.yml).
+### Development
+
+```bash
+cargo test --workspace     # run the tests
+cargo clippy --workspace   # lint
+cargo fmt --all            # format
+```
+
+### Packaging
+
+```powershell
+.\scripts\package.ps1 -Version 1.0.0          # portable ZIP in release-package\
+.\scripts\build-installer.ps1 -Version 1.0.0  # installer in installer-output\ (needs Inno Setup 6)
+```
+
+Pushing a tag such as `v1.0.0` runs the [release workflow](.github/workflows/release.yml), which builds both and publishes a GitHub release.
 
 ---
 
-## Contributing
+## Feedback
 
-Fork and submit a Pull Request. Please ensure your code passes `cargo fmt` and `cargo clippy` before pushing.
+Bug reports and suggestions are welcome on [GitHub Issues](https://github.com/ChrisBruneEngr/CANdata/issues).
 
 ---
 
@@ -155,13 +135,3 @@ CANdata began as a fork of [can-viewer](https://github.com/cantool/can-viewer) b
 ## License
 
 [MIT License](LICENSE.txt). Copyright © 2026 can-viewer (original work) and © 2026 Chris Brune (CANdata modifications). The original can-viewer copyright and permission notice is kept in [LICENSE.txt](LICENSE.txt), as the MIT License requires.
-
----
-
-<div align="center">
-
-**Built with ❤️ in Rust**
-
-[Issues](https://github.com/ChrisBruneEngr/CANdata/issues)
-
-</div>

@@ -13,11 +13,10 @@ A practical manual for using CANdata — the BLF log viewer, signal plotter, and
 5. [Plot View](#plot-view)
 6. [Library Management](#library-management)
 7. [Export & Import Libraries](#export--import-libraries)
-8. [Configuration View](#configuration-view)
-9. [Status Bar Reference](#status-bar-reference)
-10. [Keyboard Shortcuts](#keyboard-shortcuts)
-11. [Persisted State](#persisted-state)
-12. [Troubleshooting](#troubleshooting)
+8. [Status Bar Reference](#status-bar-reference)
+9. [Keyboard Shortcuts](#keyboard-shortcuts)
+10. [Persisted State](#persisted-state)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -41,7 +40,7 @@ For a fresh install with no libraries configured yet, go to **Library** (top bar
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
 │                                                            │
-│                  Content area                              │ ← Log / Plot / Library / Config
+│                  Content area                              │ ← Log / Plot / Library
 │                                                            │
 │                                                            │
 ├────────────────────────────────────────────────────────────┤
@@ -50,7 +49,7 @@ For a fresh install with no libraries configured yet, go to **Library** (top bar
 ```
 
 - **Top bar** — File menu, Library button, Settings and Help menus, window controls.
-- **Content area** — switches between Log / Plot / Library / Config.
+- **Content area** — switches between Log / Plot / Library.
 - **Status bar** — file info, message/DBC/LDF counts, status messages, active library, view name, and the Log ⇄ Plot toggle.
 
 ---
@@ -97,7 +96,7 @@ Default view after loading a BLF. Shows one row per CAN/LIN message.
 | **TIME** | Absolute (`YYYY-MM-DD HH:MM:SS.ffffff`) when the BLF has a start time; relative seconds otherwise. |
 | **CH**   | Channel number. Click ⚙ next to the header to open the channel filter dropdown; click ✓ to clear the filter. |
 | **TYPE** | Color-coded: CAN/CAN2 green, CAN_ERR red, CAN_FD/CAN_FD64 purple, CAN_OV amber, LIN/LIN2 blue. |
-| **ID**   | Message ID. Click the label to toggle decimal ⇄ hex (small `10` / `16` suffix indicates the active base). ⚙ / ✓ toggles the ID filter dropdown. |
+| **ID**   | Message ID. The small pill next to the label shows the current base: **DEC** (decimal, e.g. `416`; the default) or **HEX** (e.g. `0x1A0`, at least three hex digits). Click the label or the pill to switch. The base applies to the log rows and the ID filter dropdown and resets to DEC when CANdata restarts. Click ⚙ to open the ID filter dropdown; when a filter is active the icon shows ✓, and clicking it clears the filter. |
 | **DLC**  | Data length code. |
 | **DATA** | Raw payload bytes. |
 
@@ -106,7 +105,7 @@ Default view after loading a BLF. Shows one row per CAN/LIN message.
 Two filters — **ID filter** and **Channel filter** — work the same way:
 
 1. Click ⚙ next to the column header to open a dropdown listing every unique value.
-2. Click a value to set the filter, or type digits (ID only) to refine.
+2. Click a value to set the filter. For the ID filter you can also type the ID with the number keys; typed IDs are always read as **decimal**, even when the ID column shows HEX (so enter `416`, not `1A0`).
 3. ✓ clears the filter. **Escape** closes the dropdown (and clears the filter if pressed again).
 
 Both filters combine with AND when both are set.
@@ -121,7 +120,7 @@ Shows *"No log file loaded. Use File → Open BLF... to load a log file."*
 
 Switch via the **Plot** button (bottom-left of the status bar). Renders one chart per selected signal.
 
-### Signal sidebar (left, 320px)
+### Signal sidebar
 
 - Header shows signal count.
 - **Search box** filters by signal name, message name, or ID.
@@ -261,19 +260,6 @@ A `.cvlib` file is pretty-printed JSON: `format` (`"can-viewer-library"`), `form
 
 ---
 
-## Configuration View
-
-Switch via the status bar (view name shows `config mode`). Mostly a read-only summary.
-
-- **Import Database** — currently a stub; use the Library view instead.
-- **Save Config** — writes `multi_channel_config.json` next to the executable.
-- **Channel Mappings** — display-only list of current mappings (channel ID, type, file path).
-- **System Status** — message count, DBC count, LIN count.
-
-Editing happens in the Library view; this view just lets you trigger a manual save and inspect state.
-
----
-
 ## Status Bar Reference
 
 The 24-px bar at the bottom of the window.
@@ -296,7 +282,7 @@ The 24-px bar at the bottom of the window.
 | **status_msg** | Transient status text (Loading…, Ready, errors). Truncated if long. |
 | **Library badge** | `📚 <lib_name> / <version>` when a library version is active. |
 | **Cancel** | `❌ Cancel` shown only during loading. Click to abort pending loads. |
-| **view name** | `log mode` / `plot mode` / `library mode` / `config mode`. |
+| **view name** | `log mode` / `plot mode` / `library mode`. |
 
 ### Loaded Files popover
 
@@ -314,7 +300,7 @@ CANdata has no global hotkey registry. Shortcuts are per-view.
 |---|---|
 | `0`–`9` | Append digit to the ID filter text (works whether or not the dropdown is open). |
 | `Backspace` | Delete last digit of the ID filter text; clears the ID filter if the text is empty. |
-| `Enter` | Apply the ID filter (parses the current text as a decimal u32). |
+| `Enter` | Apply the ID filter. The typed text is read as a decimal ID, whatever base the ID column shows; hex digits A–F are not accepted. |
 | `Escape` | Close the ID filter dropdown if open; otherwise clear the ID filter. |
 
 ### Library view
@@ -351,7 +337,6 @@ CANdata is portable: everything it saves lives in the folder that holds the exec
 - Add / delete channel
 - Activate / deactivate version
 - Apply to Plot
-- Manual **Save Config** in the Configuration view
 - After importing a `.cvlib` library file
 
 Contents:
