@@ -1062,7 +1062,7 @@ fn render_signal_set_dropdown_popup(
 
 /// Render the inline "save as signal set" input row (replaces the bottom bar
 /// when show_save_set_input is true). Enter saves (via InputState subscribe);
-/// 取消 button aborts. The Input entity is created lazily in impls_rendering.rs
+/// Cancel button aborts. The Input entity is created lazily in impls_rendering.rs
 /// render loop (Sub-step 0b) and bound here.
 fn render_save_set_input_row(
     app: &CanDataApp,

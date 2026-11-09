@@ -177,7 +177,7 @@ fn serialize_log_container(container: &LogContainer) -> Vec<u8> {
 
 fn main() {
     let filename = "test_corrupted.blf";
-    println!("🔧 生成带有损坏尾部的BLF文件: {}", filename);
+    println!("🔧 Generating BLF file with a corrupted tail: {}", filename);
 
     let start_time = SystemTime {
         year: 2025,
@@ -190,15 +190,15 @@ fn main() {
         milliseconds: 0,
     };
 
-    // 1. 创建有效的文件统计信息
+    // 1. Create valid file statistics
     let stats = FileStatistics {
-        statistics_size: 144, // 标准 BLF 头部大小
+        statistics_size: 144, // standard BLF header size
         api_number: 0,
         application_id: 1,
         compression_level: 0,
         application_major: 1,
         application_minor: 0,
-        file_size: 0, // 稍后更新
+        file_size: 0, // updated later
         uncompressed_file_size: 0,
         object_count: 0,
         application_build: 0,
@@ -206,7 +206,7 @@ fn main() {
         last_object_time: start_time.clone(),
     };
 
-    // 2. 创建20个有效的CAN消息
+    // 2. Create 20 valid CAN messages
     let mut messages_bytes = Vec::new();
     let object_count = 20;
 
@@ -250,7 +250,7 @@ fn main() {
         messages_bytes.extend_from_slice(&msg_bytes);
     }
 
-    // 3. 包装在LogContainer中
+    // 3. Wrap them in a LogContainer
     let container_header_size = 32;
     let container_extra_size = 16;
     let container_data_size = messages_bytes.len();
@@ -283,45 +283,45 @@ fn main() {
 
     let container_bytes = serialize_log_container(&container);
 
-    // 4. 创建损坏的尾部数据
-    // 我们要添加几种不同类型的损坏来测试错误处理
+    // 4. Create the corrupted tail data
+    // Add several different kinds of corruption to exercise error handling
     let mut corrupted_tail = Vec::new();
 
-    // 损坏类型1: 不完整的对象头（只有部分magic number）
-    println!("  - 添加损坏类型1: 不完整的对象头");
+    // Corruption type 1: incomplete object header (only part of the magic number)
+    println!("  - Adding corruption type 1: incomplete object header");
     use byteorder::{LittleEndian, WriteBytesExt};
-    corrupted_tail.write_u32::<LittleEndian>(0x4A424F).unwrap(); // 只有部分 LOBJ
+    corrupted_tail.write_u32::<LittleEndian>(0x4A424F).unwrap(); // only part of LOBJ
 
-    // 损坏类型2: 错误的magic number
-    println!("  - 添加损坏类型2: 错误的magic number");
+    // Corruption type 2: wrong magic number
+    println!("  - Adding corruption type 2: wrong magic number");
     corrupted_tail
         .write_u32::<LittleEndian>(0xDEADBEEF)
-        .unwrap(); // 无效的签名
+        .unwrap(); // invalid signature
     corrupted_tail.write_u16::<LittleEndian>(32).unwrap();
     corrupted_tail.write_u16::<LittleEndian>(1).unwrap();
     corrupted_tail.write_u32::<LittleEndian>(48).unwrap();
 
-    // 损坏类型3: 声明的大小远大于实际可用数据（会导致UnexpectedEof）
-    println!("  - 添加损坏类型3: 对象大小声明过大");
+    // Corruption type 3: declared size far larger than the data available (causes UnexpectedEof)
+    println!("  - Adding corruption type 3: object size too large");
     corrupted_tail
         .write_u32::<LittleEndian>(0x4A424F4C)
         .unwrap(); // LOBJ
     corrupted_tail.write_u16::<LittleEndian>(32).unwrap();
     corrupted_tail.write_u16::<LittleEndian>(1).unwrap();
-    corrupted_tail.write_u32::<LittleEndian>(999999).unwrap(); // 声明很大的大小
+    corrupted_tail.write_u32::<LittleEndian>(999999).unwrap(); // declares a very large size
     corrupted_tail
         .write_u32::<LittleEndian>(ObjectType::CanMessage as u32)
         .unwrap();
-    // 后面没有足够的数据
+    // not enough data follows
 
-    // 损坏类型4: 随机垃圾数据
-    println!("  - 添加损坏类型4: 随机垃圾数据");
+    // Corruption type 4: random garbage data
+    println!("  - Adding corruption type 4: random garbage data");
     corrupted_tail.extend_from_slice(&[0xFF, 0xAA, 0x55, 0x00, 0x12, 0x34, 0x56, 0x78]);
 
-    // 5. 写入文件
-    let mut file = File::create(filename).expect("无法创建文件");
+    // 5. Write the file
+    let mut file = File::create(filename).expect("Failed to create file");
 
-    // 更新统计信息
+    // Update the statistics
     let mut final_stats = stats.clone();
     final_stats.file_size =
         stats.statistics_size as u64 + container_bytes.len() as u64 + corrupted_tail.len() as u64;
@@ -330,20 +330,20 @@ fn main() {
 
     let final_stats_bytes = serialize_file_statistics(&final_stats);
 
-    // 写入各部分
+    // Write each part
     file.write_all(&final_stats_bytes)
-        .expect("写入统计信息失败");
-    file.write_all(&container_bytes).expect("写入容器失败");
-    file.write_all(&corrupted_tail).expect("写入损坏数据失败");
+        .expect("Failed to write statistics");
+    file.write_all(&container_bytes).expect("Failed to write container");
+    file.write_all(&corrupted_tail).expect("Failed to write corrupted data");
 
-    println!("\n✅ 成功生成 {}", filename);
-    println!("   文件包含:");
-    println!("   - {} 个有效的CAN消息", object_count);
-    println!("   - 4种不同类型的损坏数据");
-    println!("   - 预期结果: 成功解析{}个消息，报告4个错误", object_count);
-    println!("\n📝 使用方法:");
-    println!("   1. 运行 CANdata 应用");
-    println!("   2. 点击 'Open BLF' 按钮");
-    println!("   3. 选择 {} 文件", filename);
-    println!("   4. 检查状态栏和logs视图，应该看到成功解析的消息和错误信息\n");
+    println!("\n✅ Generated {}", filename);
+    println!("   The file contains:");
+    println!("   - {} valid CAN messages", object_count);
+    println!("   - 4 different kinds of corrupted data");
+    println!("   - Expected result: {} messages parsed, 4 errors reported", object_count);
+    println!("\n📝 How to use:");
+    println!("   1. Start CANdata");
+    println!("   2. Choose File → Open BLF...");
+    println!("   3. Select {}", filename);
+    println!("   4. Check the status bar and the Log view: the parsed messages and the errors should both appear\n");
 }

@@ -604,7 +604,7 @@ impl CanDataApp {
                     )
                     .child(
                         div()
-                            .flex_1()  // DATA列使用flex_1()占据剩余空间
+                            .flex_1()  // the DATA column takes the remaining space
                             .px_2()
                             .py_1()
                             .flex()
@@ -1556,7 +1556,7 @@ impl Render for CanDataApp {
             let input = cx
                 .new(|cx| InputState::new(window, cx).placeholder("Search signals / messages / IDs..."));
 
-            // 使用 observe 来监听输入状态的任何变化，而不仅仅是 Change 事件
+            // Use observe to catch every change to the input state, not just Change events
             // CRITICAL: Prevent infinite rendering loop by using String comparison
             cx.observe(&input, |this, entity, cx| {
                 let val = entity.read(cx).value().to_string();
@@ -1841,7 +1841,7 @@ impl Render for CanDataApp {
                                                 let path = file.path().to_owned();
                                                 let path_for_load = path.clone();
 
-                                                // 大文件保护
+                                                // Large-file guard
                                                 const FILE_SIZE_THRESHOLD: u64 = 1_000_000_000; // 1 GB
                                                 if let Ok(meta) = std::fs::metadata(&path) {
                                                     if meta.len() > FILE_SIZE_THRESHOLD {
@@ -1915,7 +1915,7 @@ impl Render for CanDataApp {
                                                     files.into_iter().map(|f| f.path().to_owned()).collect();
                                                 if paths.is_empty() { return Ok::<(), anyhow::Error>(()); }
 
-                                                // 大文件保护：检查总大小
+                                                // Large-file guard: check the total size
                                                 const FILE_SIZE_THRESHOLD: u64 = 1_000_000_000; // 1 GB
                                                 let total_size: u64 = paths.iter()
                                                     .filter_map(|p| std::fs::metadata(p).ok())
@@ -1942,7 +1942,7 @@ impl Render for CanDataApp {
                                                     }
                                                 }
 
-                                                // 初始化 loading_progress
+                                                // Initialize loading_progress
                                                 let total = paths.len();
                                                 let _ = cx.update(|cx| {
                                                     view.update(cx, |view, cx| {
@@ -1958,7 +1958,7 @@ impl Render for CanDataApp {
                                                     });
                                                 });
 
-                                                // 并发解析:spawn 所有任务,顺序收集结果（GPUI Task 并发执行）
+                                                // Parse concurrently: spawn all tasks, then collect results in order (GPUI tasks run concurrently)
                                                 let mut tasks = Vec::new();
                                                 for path in paths.clone() {
                                                     let path = path.clone();
@@ -1971,7 +1971,7 @@ impl Render for CanDataApp {
                                                     tasks.push(task);
                                                 }
 
-                                                // 顺序 await 但每个任务在后台已开始执行
+                                                // Await in order; each task is already running in the background
                                                 for task in tasks {
                                                     let (path, result) = task.await;
                                                     let view = view.clone();

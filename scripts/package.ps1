@@ -1,5 +1,5 @@
-# CANdata 打包脚本
-# 创建一个包含可执行文件、配置文件和文档的完整发行包
+# CANdata packaging script
+# Builds a complete release package with the executable, config files and docs
 
 param(
     [string]$Version = "1.0.0",
@@ -7,31 +7,31 @@ param(
 )
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "CANdata 打包脚本 v$Version" -ForegroundColor Cyan
+Write-Host "CANdata packaging script v$Version" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. 编译 Release 版本
-Write-Host "📦 步骤 1: 编译 Release 版本..." -ForegroundColor Green
+# 1. Build the release version
+Write-Host "📦 Step 1: Building the release version..." -ForegroundColor Green
 cargo build --release -p candata
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ 编译失败！" -ForegroundColor Red
+    Write-Host "❌ Build failed!" -ForegroundColor Red
     exit 1
 }
-Write-Host "✅ 编译成功！" -ForegroundColor Green
+Write-Host "✅ Build succeeded!" -ForegroundColor Green
 Write-Host ""
 
-# 2. 创建发布目录结构
-Write-Host "📁 步骤 2: 创建发布目录..." -ForegroundColor Green
+# 2. Create the release folder structure
+Write-Host "📁 Step 2: Creating the release folder..." -ForegroundColor Green
 $PackageName = "candata-v$Version"
 $PackageDir = Join-Path $OutputDir $PackageName
 
-# 清理旧的发布目录
+# Remove the old release folder
 if (Test-Path $PackageDir) {
     Remove-Item -Path $PackageDir -Recurse -Force
 }
 
-# 创建目录结构
+# Create the folder structure
 New-Item -ItemType Directory -Path $PackageDir -Force | Out-Null
 New-Item -ItemType Directory -Path "$PackageDir\bin" -Force | Out-Null
 New-Item -ItemType Directory -Path "$PackageDir\config" -Force | Out-Null
@@ -40,19 +40,19 @@ New-Item -ItemType Directory -Path "$PackageDir\docs" -Force | Out-Null
 New-Item -ItemType Directory -Path "$PackageDir\samples" -Force | Out-Null
 New-Item -ItemType Directory -Path "$PackageDir\assets" -Force | Out-Null
 
-Write-Host "✅ 目录结构创建完成！" -ForegroundColor Green
+Write-Host "✅ Folder structure created!" -ForegroundColor Green
 Write-Host ""
 
-# 3. 复制可执行文件
-Write-Host "📋 步骤 3: 复制可执行文件..." -ForegroundColor Green
+# 3. Copy the executable
+Write-Host "📋 Step 3: Copying the executable..." -ForegroundColor Green
 Copy-Item -Path ".\target\release\candata.exe" -Destination "$PackageDir\bin\candata.exe"
-Write-Host "✅ 可执行文件已复制到 bin\candata.exe" -ForegroundColor Green
+Write-Host "✅ Executable copied to bin\candata.exe" -ForegroundColor Green
 Write-Host ""
 
-# 4. 复制配置文件
-Write-Host "📋 步骤 4: 复制配置文件..." -ForegroundColor Green
+# 4. Copy the config files
+Write-Host "📋 Step 4: Copying config files..." -ForegroundColor Green
 
-# 创建默认配置文件
+# Create the default config file
 $defaultConfig = @"
 {
   "libraries": [],
@@ -63,27 +63,27 @@ $defaultConfig = @"
 "@
 $defaultConfig | Out-File -FilePath "$PackageDir\config\default_config.json" -Encoding UTF8
 
-# 如果存在用户配置，也复制一份作为示例
+# If a user config exists, copy it as an example too
 if (Test-Path ".\multi_channel_config.json") {
     Copy-Item -Path ".\multi_channel_config.json" -Destination "$PackageDir\config\example_config.json"
 }
 
-# 创建信号库存储说明文件
+# Create the signal library storage readme
 $signalLibraryReadme = @"
-# 信号库本地存储目录
+# Signal library local storage folder
 
-此目录用于存储信号库的数据库文件。
+This folder stores the signal libraries' database files.
 
-## 目录结构
+## Folder structure
 
 ```
 signal_library/
-└── {库名}/
-    └── {版本}/
+└── {library}/
+    └── {version}/
         └── database.{dbc|ldf}
 ```
 
-## 示例
+## Example
 
 ```
 signal_library/
@@ -97,59 +97,59 @@ signal_library/
         └── database.ldf
 ```
 
-## 说明
+## Notes
 
-- 当您在软件中添加信号库和版本时，数据库文件会自动复制到此目录
-- 配置文件中保存的是此目录下的路径，确保软件可移植性
-- 您也可以手动将数据库文件放入相应的目录结构中
+- When you add a signal library and version in the program, the database files are copied here automatically
+- The config file stores paths inside this folder, which keeps the program portable
+- You can also place database files into this folder structure by hand
 
-## 注意事项
+## Caution
 
-- 请勿手动删除此目录下的文件，除非您确定不再需要
-- 备份软件时，请同时备份此目录
+- Don't delete files in this folder unless you're sure they're no longer needed
+- When backing up the program, back up this folder too
 
 ---
-更新时间: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+Updated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 "@
 $signalLibraryReadme | Out-File -FilePath "$PackageDir\config\signal_library\README.txt" -Encoding UTF8
 
-Write-Host "✅ 配置文件已创建" -ForegroundColor Green
+Write-Host "✅ Config files created" -ForegroundColor Green
 Write-Host ""
 
-# 5. 复制示例文件
-Write-Host "📋 步骤 5: 复制示例文件..." -ForegroundColor Green
+# 5. Copy the sample files
+Write-Host "📋 Step 5: Copying sample files..." -ForegroundColor Green
 if (Test-Path ".\sample.dbc") {
     Copy-Item -Path ".\sample.dbc" -Destination "$PackageDir\samples\sample.dbc"
 }
 if (Test-Path ".\sample.blf") {
     Copy-Item -Path ".\sample.blf" -Destination "$PackageDir\samples\sample.blf"
 }
-Write-Host "✅ 示例文件已复制" -ForegroundColor Green
+Write-Host "✅ Sample files copied" -ForegroundColor Green
 Write-Host ""
 
-# 6. 复制资源文件
-Write-Host "📋 步骤 6: 复制资源文件..." -ForegroundColor Green
+# 6. Copy the resource files
+Write-Host "📋 Step 6: Copying resource files..." -ForegroundColor Green
 if (Test-Path ".\assets") {
     Copy-Item -Path ".\assets\*" -Destination "$PackageDir\assets\" -Recurse -Force
 }
-Write-Host "✅ 资源文件已复制" -ForegroundColor Green
+Write-Host "✅ Resource files copied" -ForegroundColor Green
 Write-Host ""
 
-# 7. 复制文档
-Write-Host "📋 步骤 7: 复制文档..." -ForegroundColor Green
+# 7. Copy the docs
+Write-Host "📋 Step 7: Copying docs..." -ForegroundColor Green
 Copy-Item -Path ".\README.md" -Destination "$PackageDir\docs\README.md" -ErrorAction SilentlyContinue
 Copy-Item -Path ".\BUILD.md" -Destination "$PackageDir\docs\BUILD.md" -ErrorAction SilentlyContinue
 Copy-Item -Path ".\ADD_CHANNEL_CRASH_FIX.md" -Destination "$PackageDir\docs\ADD_CHANNEL_CRASH_FIX.md" -ErrorAction SilentlyContinue
 
-Write-Host "✅ 文档已复制" -ForegroundColor Green
+Write-Host "✅ Docs copied" -ForegroundColor Green
 Write-Host ""
 
-# 8. 创建启动脚本
-Write-Host "📋 步骤 8: 创建启动脚本..." -ForegroundColor Green
+# 8. Create the launch script
+Write-Host "📋 Step 8: Creating the launch script..." -ForegroundColor Green
 
 $launchScript = @"
 @echo off
-REM CANdata 启动脚本
+REM CANdata launch script
 echo Starting CANdata...
 cd /d "%~dp0"
 bin\candata.exe
@@ -157,111 +157,111 @@ pause
 "@
 $launchScript | Out-File -FilePath "$PackageDir\start.bat" -Encoding ASCII
 
-Write-Host "✅ 启动脚本已创建" -ForegroundColor Green
+Write-Host "✅ Launch script created" -ForegroundColor Green
 Write-Host ""
 
-# 9. 创建 README
-Write-Host "📋 步骤 9: 创建发布说明..." -ForegroundColor Green
+# 9. Create the README
+Write-Host "📋 Step 9: Creating release notes..." -ForegroundColor Green
 
 $releaseReadme = @"
 # CANdata v$Version
 
-## 目录结构
+## Folder structure
 
 ```
 candata-v$Version/
-├── bin/              # 可执行文件
-│   └── candata.exe   # 主程序
-├── config/           # 配置文件目录
-│   ├── signal_library/        # 信号库本地存储
-│   │   └── README.txt         # 存储说明
-│   ├── default_config.json    # 默认配置
-│   └── example_config.json    # 配置示例
-├── samples/          # 示例文件
-│   ├── sample.dbc    # DBC 示例
-│   └── sample.blf    # BLF 示例
-├── assets/           # 资源文件（图标等）
-├── docs/             # 文档
-│   ├── README.md     # 使用说明
-│   └── BUILD.md      # 编译说明
-├── start.bat         # 启动脚本
-└── README.txt        # 本文件
+├── bin/              # executable
+│   └── candata.exe   # main program
+├── config/           # config folder
+│   ├── signal_library/        # signal library local storage
+│   │   └── README.txt         # storage notes
+│   ├── default_config.json    # default config
+│   └── example_config.json    # example config
+├── samples/          # sample files
+│   ├── sample.dbc    # DBC sample
+│   └── sample.blf    # BLF sample
+├── assets/           # resource files (icons, etc.)
+├── docs/             # documentation
+│   ├── README.md     # usage notes
+│   └── BUILD.md      # build notes
+├── start.bat         # launch script
+└── README.txt        # this file
 ```
 
-## 快速开始
+## Quick start
 
-1. 双击 `start.bat` 启动程序
-2. 或者直接运行 `bin\candata.exe`
+1. Double-click `start.bat` to start the program
+2. Or run `bin\candata.exe` directly
 
-## 配置文件
+## Config file
 
-程序会在以下位置查找配置文件：
-1. 当前目录下的 `multi_channel_config.json`
+The program looks for its config file in:
+1. `multi_channel_config.json` in the current folder
 2. `config\default_config.json`
 
-您可以复制 `config\example_config.json` 到程序根目录并重命名为 `multi_channel_config.json` 来自定义配置。
+To customize the config, copy `config\example_config.json` to the program folder and rename it `multi_channel_config.json`.
 
-## 信号库存储
+## Signal library storage
 
-程序支持信号库本地存储功能：
+The program stores signal libraries locally:
 
-- **存储位置**: `config\signal_library\`
-- **自动管理**: 添加信号库时，数据库文件会自动复制到此目录
-- **目录结构**: `{库名}\{版本}\database.{dbc|ldf}`
-- **可移植性**: 整个软件目录可以直接复制到其他位置使用
+- **Location**: `config\signal_library\`
+- **Managed automatically**: when you add a signal library, its database files are copied here
+- **Folder structure**: `{library}\{version}\database.{dbc|ldf}`
+- **Portable**: the whole program folder can be copied elsewhere and used as is
 
-### 使用方法
+### How to use
 
-1. 在软件中切换到"Library"视图
-2. 点击"+ Add Library"创建新库
-3. 点击"+ Add Version"添加版本
-4. 点击"+ Add Channel"配置通道并选择数据库文件
-5. 文件会自动复制到 `config\signal_library\{库名}\{版本}\` 目录
+1. Switch to the "Library" view
+2. Click "+ Add Library" to create a library
+3. Click "+ Add Version" to add a version
+4. Click "+ Add Channel" to configure a channel and choose its database file
+5. The file is copied to `config\signal_library\{library}\{version}\` automatically
 
-## 功能特性
+## Features
 
-- BLF 文件解析和查看
-- DBC/LDF 数据库支持
-- 多通道配置管理
-- 信号解码和显示
-- 图表分析（开发中）
+- BLF file parsing and viewing
+- DBC/LDF database support
+- Multi-channel configuration
+- Signal decoding and display
+- Signal plotting
 
-## 系统要求
+## System requirements
 
-- Windows 10 或更高版本
-- 64 位操作系统
+- Windows 10 or later
+- 64-bit operating system
 
-## 技术支持
+## Support
 
-如有问题，请查看 `docs` 目录下的文档或联系开发团队。
+For help, see the docs in the `docs` folder or open an issue at https://github.com/ChrisBruneEngr/CANdata/issues.
 
 ---
-构建时间: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-版本: $Version
+Built: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+Version: $Version
 "@
 $releaseReadme | Out-File -FilePath "$PackageDir\README.txt" -Encoding UTF8
 
-Write-Host "✅ 发布说明已创建" -ForegroundColor Green
+Write-Host "✅ Release notes created" -ForegroundColor Green
 Write-Host ""
 
-# 10. 创建压缩包
-Write-Host "📦 步骤 10: 创建压缩包..." -ForegroundColor Green
+# 10. Create the ZIP archive
+Write-Host "📦 Step 10: Creating the ZIP archive..." -ForegroundColor Green
 $ZipPath = Join-Path $OutputDir "$PackageName.zip"
 if (Test-Path $ZipPath) {
     Remove-Item -Path $ZipPath -Force
 }
 
 Compress-Archive -Path $PackageDir -DestinationPath $ZipPath -CompressionLevel Optimal
-Write-Host "✅ 压缩包已创建: $ZipPath" -ForegroundColor Green
+Write-Host "✅ ZIP archive created: $ZipPath" -ForegroundColor Green
 Write-Host ""
 
-# 完成
+# Done
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "✅ 打包完成！" -ForegroundColor Green
+Write-Host "✅ Packaging complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "发布包位置:" -ForegroundColor Yellow
-Write-Host "  文件夹: $PackageDir" -ForegroundColor White
-Write-Host "  压缩包: $ZipPath" -ForegroundColor White
+Write-Host "Release package location:" -ForegroundColor Yellow
+Write-Host "  Folder: $PackageDir" -ForegroundColor White
+Write-Host "  ZIP: $ZipPath" -ForegroundColor White
 Write-Host ""
-Write-Host "您可以将压缩包分发给用户，解压后即可使用。" -ForegroundColor Cyan
+Write-Host "Distribute the ZIP to users; they unzip it and run the program." -ForegroundColor Cyan

@@ -1,6 +1,6 @@
 //! Signal library management module
 //!
-//! 提供信号库的CRUD操作、版本管理和验证功能
+//! CRUD operations, version management and validation for signal libraries.
 
 mod storage;
 pub mod bundle;
@@ -22,41 +22,41 @@ use parser::ldf::{LdfDatabase, LdfParser};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-/// 信号库管理器
+/// Signal library manager
 #[derive(Clone)]
 pub struct LibraryManager {
     libraries: Vec<SignalLibrary>,
 }
 
 impl LibraryManager {
-    /// 创建新的管理器
+    /// Create a new manager.
     pub fn new() -> Self {
         Self {
             libraries: Vec::new(),
         }
     }
 
-    /// 从库列表创建管理器
+    /// Create a manager from a list of libraries.
     pub fn from_libraries(libraries: Vec<SignalLibrary>) -> Self {
         Self { libraries }
     }
 
-    /// 获取所有库
+    /// Get all libraries.
     pub fn libraries(&self) -> &[SignalLibrary] {
         &self.libraries
     }
 
-    /// 根据ID查找库
+    /// Find a library by ID.
     pub fn find_library(&self, id: &str) -> Option<&SignalLibrary> {
         self.libraries.iter().find(|lib| lib.id == id)
     }
 
-    /// 根据ID查找可变库
+    /// Find a library by ID (mutable).
     pub fn find_library_mut(&mut self, id: &str) -> Option<&mut SignalLibrary> {
         self.libraries.iter_mut().find(|lib| lib.id == id)
     }
 
-    /// 创建新库
+    /// Create a new library.
     pub fn create_library(
         &mut self,
         name: String,
@@ -64,7 +64,7 @@ impl LibraryManager {
     ) -> Result<&SignalLibrary, String> {
         let id = generate_library_id(&name);
 
-        // 检查是否已存在
+        // Check whether it already exists
         if self.find_library(&id).is_some() {
             return Err("Library already exists".to_string());
         }
@@ -83,7 +83,7 @@ impl LibraryManager {
         Ok(())
     }
 
-    /// 重命名库 — 返回新生成的 library ID
+    /// Rename a library; returns the newly generated library ID.
     pub fn rename_library(&mut self, old_id: &str, new_name: String) -> Result<String, String> {
         let new_name = new_name.trim().to_string();
         if new_name.is_empty() {
@@ -109,7 +109,7 @@ impl LibraryManager {
         Ok(new_id)
     }
 
-    /// 重命名库版本
+    /// Rename a library version.
     pub fn rename_version(
         &mut self,
         library_id: &str,
@@ -141,11 +141,11 @@ impl LibraryManager {
         Ok(())
     }
 
-    /// 删除库
+    /// Delete a library.
     pub fn delete_library(&mut self, id: &str, mappings: &[ChannelMapping]) -> Result<(), String> {
         let library = self.find_library(id).ok_or("Library not found")?;
 
-        // 检查是否被使用
+        // Check whether it is in use
         if library.is_used(mappings) {
             let channels = library.used_channels(mappings);
             return Err(format!("Library is in use by channels: {:?}", channels));
@@ -156,7 +156,7 @@ impl LibraryManager {
         Ok(())
     }
 
-    /// 删除版本
+    /// Delete a version.
     pub fn remove_version(
         &mut self,
         library_id: &str,
@@ -167,7 +167,7 @@ impl LibraryManager {
             .find_library_mut(library_id)
             .ok_or("Library not found")?;
 
-        // 检查版本是否被使用
+        // Check whether the version is in use
         if mappings.iter().any(|m| {
             m.library_id.as_ref().map(|s| s.as_str()) == Some(library_id)
                 && m.version_name.as_ref().map(|s| s.as_str()) == Some(version_name)
@@ -182,7 +182,7 @@ impl LibraryManager {
         Ok(())
     }
 
-    /// 加载数据库文件
+    /// Load a database file.
     ///
     /// Channel type is auto-detected from the file extension (.dbc → CAN,
     /// .ldf → LIN) so a library created with the wrong channel_type still
@@ -200,7 +200,7 @@ impl LibraryManager {
         }
     }
 
-    /// 加载DBC文件
+    /// Load a DBC file.
     fn load_dbc(&self, path: &str) -> Result<Database, String> {
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
@@ -213,7 +213,7 @@ impl LibraryManager {
         Ok(Database::Dbc(db))
     }
 
-    /// 加载LDF文件
+    /// Load an LDF file.
     fn load_ldf(&self, path: &str) -> Result<Database, String> {
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
@@ -227,7 +227,7 @@ impl LibraryManager {
     }
 }
 
-/// 数据库枚举（包装DBC和LDF）
+/// Database enum (wraps DBC and LDF)
 pub enum Database {
     Dbc(DbcDatabase),
     Ldf(LdfDatabase),
@@ -266,7 +266,7 @@ pub fn detect_channel_type_from_path(path: &str) -> Option<ChannelType> {
     }
 }
 
-/// 生成唯一的库ID
+/// Generate a unique library ID.
 pub fn generate_library_id(name: &str) -> String {
     let mut hasher = DefaultHasher::new();
     name.hash(&mut hasher);

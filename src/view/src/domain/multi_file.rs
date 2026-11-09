@@ -1,9 +1,9 @@
-//! 多文件加载与全局合并视图
+//! Multi-file loading and the global merged view.
 //!
-//! FileSegment 表示一个已加载的 BLF 文件段；MergedView 表示多文件按全局绝对时间合并后的视图。
+//! FileSegment is one loaded BLF file; MergedView is all files merged by global absolute time.
 //!
-//! 注意：本模块的类型与方法在 Task 2+ 才会被 UI 层引用，在此之前会有 dead_code 警告。
-//! `#![allow(dead_code)]` 是临时措施，Task 2+ 接入后即可移除。
+//! Note: these types were added before the UI used them, which caused dead_code warnings.
+//! `#![allow(dead_code)]` was a temporary measure and can be removed once everything is wired in.
 
 #![allow(dead_code)]
 
@@ -12,26 +12,26 @@ use chrono::NaiveDateTime;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// 一个已加载的 BLF 文件段
+/// One loaded BLF file segment
 pub struct FileSegment {
     pub file_id: u32,
     pub path: PathBuf,
     pub file_name: String,
     pub start_time: Option<NaiveDateTime>,
-    /// 文件起始的绝对 Unix 纳秒(包含毫秒,精确到 ns)。
-    /// 用于合并时把每条消息的相对 timestamp 重写为全局绝对纳秒。
-    /// 优先于 start_time,因为 start_time (NaiveDateTime) 只到秒精度。
+    /// Absolute Unix nanoseconds at the start of the file (includes milliseconds, ns precision).
+    /// Used when merging to rewrite each message's relative timestamp as global absolute ns.
+    /// Preferred over start_time, because start_time (NaiveDateTime) only has second precision.
     pub start_ns: i64,
     pub messages: Arc<[LogObject]>,
     pub errors: Vec<String>,
     pub bytes_total: u64,
     pub bytes_consumed: u64,
     pub object_count: usize,
-    pub time_min: Option<f64>, // 全局秒，UNIX epoch 基准
+    pub time_min: Option<f64>, // global seconds since the UNIX epoch
     pub time_max: Option<f64>,
 }
 
-/// 全局合并视图
+/// Global merged view
 #[derive(Clone)]
 pub struct MergedView {
     pub messages: Arc<[LogObject]>,
@@ -54,11 +54,11 @@ impl MergedView {
 }
 
 impl FileSegment {
-    /// 从 BlfResult 构造 FileSegment
+    /// Build a FileSegment from a BlfResult.
     ///
-    /// file_id 由调用方（CanDataApp）从全局 AtomicU32 计数器获取并传入。
-    /// start_time 从 file_stats.measurement_start_time 转换为 NaiveDateTime。
-    /// time_min/time_max 通过遍历 messages 计算绝对时间（秒）。
+    /// The caller (CanDataApp) gets file_id from a global AtomicU32 counter and passes it in.
+    /// start_time is converted from file_stats.measurement_start_time to NaiveDateTime.
+    /// time_min/time_max are computed in absolute seconds by walking the messages.
     pub fn from_blf_result(result: BlfResult, file_id: u32, path: PathBuf) -> Self {
         let file_name = path
             .file_name()
@@ -127,21 +127,21 @@ impl FileSegment {
 }
 
 impl MergedView {
-    /// 从多个 FileSegment 构建全局合并视图
+    /// Build the global merged view from several FileSegments.
     ///
-    /// 按 (绝对时间秒, file_id, msg_idx) 稳定排序。
-    /// messages 中每条 LogObject 是从 segment clone 过来的。
-    /// source_file_ids[i] 记录 messages[i] 来自哪个 file_id。
+    /// Stable sort by (absolute seconds, file_id, msg_idx).
+    /// Each LogObject in messages is cloned from its segment.
+    /// source_file_ids[i] records which file_id messages[i] came from.
     pub fn from_segments(segments: &[Arc<FileSegment>]) -> Self {
         if segments.is_empty() {
             return Self::empty();
         }
 
-        // 单 segment 与多 segment 统一路径:把每条消息的 timestamp
-        // 重写为全局绝对纳秒 (abs_ns = seg.start_ns + msg.timestamp()),
-        // 这样后续渲染调用 msg.timestamp() 拿到的就是 abs_ns,无需再
-        // 加 start_time。单文件时 abs_ns 就是该文件内的绝对纳秒
-        // (因为 start_ns 直接由 measurement_start_time 转换)。
+        // Single and multiple segments share one path: rewrite each message's timestamp
+        // as global absolute ns (abs_ns = seg.start_ns + msg.timestamp()),
+        // so later rendering gets abs_ns from msg.timestamp() and doesn't
+        // need to add start_time. With one file, abs_ns is the absolute ns within that file
+        // (because start_ns comes straight from measurement_start_time).
 
         // Optimization: sort lightweight index keys instead of cloned LogObjects.
         // Each LogObject is a large enum (CAN FD carries up to 64 data bytes);
@@ -273,8 +273,8 @@ mod tests {
     }
 
     fn make_seg(file_id: u32, msgs: Vec<u64>) -> Arc<FileSegment> {
-        // msgs: Vec<timestamp_ns>。start_time 固定为 UNIX epoch（DateTime::from_timestamp(0, 0)）
-        // 绝对时间 = 0 + msg.timestamp()，与 from_blf_result 计算方式一致
+        // msgs: Vec<timestamp_ns>. start_time is fixed at the UNIX epoch (DateTime::from_timestamp(0, 0))
+        // absolute time = 0 + msg.timestamp(), the same calculation as from_blf_result
         let messages: Vec<LogObject> = msgs
             .iter()
             .map(|ts| {
@@ -287,7 +287,7 @@ mod tests {
                 })
             })
             .collect();
-        // 与 from_blf_result 保持一致：start_ns = 0，abs_ns = start_ns + msg.timestamp()
+        // Same as from_blf_result: start_ns = 0, abs_ns = start_ns + msg.timestamp()
         let (time_min, time_max) = if msgs.is_empty() {
             (None, None)
         } else {
@@ -336,9 +336,9 @@ mod tests {
 
     #[test]
     fn test_merged_view_two_segments_sorted_by_time() {
-        // seg1 时间戳: 100ns, 500ns
-        // seg2 时间戳: 200ns, 600ns
-        // 合并后顺序: 100(seg1), 200(seg2), 500(seg1), 600(seg2)
+        // seg1 timestamps: 100ns, 500ns
+        // seg2 timestamps: 200ns, 600ns
+        // merged order: 100(seg1), 200(seg2), 500(seg1), 600(seg2)
         let seg1 = make_seg(1, vec![100, 500]);
         let seg2 = make_seg(2, vec![200, 600]);
         let view = MergedView::from_segments(&[seg1, seg2]);
@@ -352,8 +352,8 @@ mod tests {
 
     #[test]
     fn test_merged_view_after_remove_middle() {
-        // 三个 segment: seg1 (100ns), seg2 (200ns), seg3 (300ns)
-        // 移除 seg2 后: 100(seg1), 300(seg3)
+        // three segments: seg1 (100ns), seg2 (200ns), seg3 (300ns)
+        // after removing seg2: 100(seg1), 300(seg3)
         let seg1 = make_seg(1, vec![100]);
         let seg2 = make_seg(2, vec![200]);
         let seg3 = make_seg(3, vec![300]);
@@ -370,8 +370,8 @@ mod tests {
 
     #[test]
     fn test_failed_segment_does_not_block_others() {
-        // 一个失败 segment（messages 为空）+ 一个正常 segment
-        // 失败 segment 不贡献 messages，但仍计入 source_file_ids 列表
+        // one failed segment (no messages) + one good segment
+        // the failed segment contributes no messages but is still counted in source_file_ids
         let good = make_seg(1, vec![100, 200]);
         let failed = Arc::new(FileSegment {
             file_id: 99,
@@ -389,13 +389,13 @@ mod tests {
         });
         let view = MergedView::from_segments(&[good, failed]);
         assert_eq!(view.messages.len(), 2);
-        // 失败 segment 没贡献消息，source_file_ids 全是 good 的
+        // the failed segment contributed no messages, so every source_file_id is the good one
         assert_eq!(view.source_file_ids, Arc::from([1u32, 1]));
     }
 
     #[test]
     fn test_duplicate_path_coexists_as_independent_segments() {
-        // 同一路径加载两次：两个 segment 独立共存
+        // the same path loaded twice: the two segments coexist independently
         let seg1 = make_seg(1, vec![100]);
         let seg2 = make_seg(2, vec![200]);
         let view = MergedView::from_segments(&[seg1, seg2]);
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_merged_view_time_range_computed() {
-        // 单 segment：merged 的 time_min/time_max 应等于 segment 的 time_min/time_max
+        // one segment: merged time_min/time_max should equal the segment's time_min/time_max
         let seg = make_seg(1, vec![100, 500]);
         let view = MergedView::from_segments(&[seg]);
         assert!(view.time_min.is_some());
@@ -415,35 +415,35 @@ mod tests {
 
     #[test]
     fn test_merge_three_segments_preserves_global_order() {
-        // 三 segment 时间戳交错
+        // three segments with interleaved timestamps
         let seg1 = make_seg(1, vec![100, 700]);
         let seg2 = make_seg(2, vec![200, 800]);
         let seg3 = make_seg(3, vec![300, 900]);
         let view = MergedView::from_segments(&[seg1, seg2, seg3]);
         assert_eq!(view.messages.len(), 6);
-        // 验证全局顺序
+        // check the global order
         assert_eq!(view.messages[0].timestamp(), 100);
         assert_eq!(view.messages[1].timestamp(), 200);
         assert_eq!(view.messages[2].timestamp(), 300);
         assert_eq!(view.messages[3].timestamp(), 700);
         assert_eq!(view.messages[4].timestamp(), 800);
         assert_eq!(view.messages[5].timestamp(), 900);
-        // 验证 source_file_ids
+        // check source_file_ids
         assert_eq!(view.source_file_ids, Arc::from([1u32, 2, 3, 1, 2, 3]));
     }
 
     #[test]
     fn test_merge_preserves_stable_order_for_same_timestamp() {
-        // 同一 timestamp，应按 (file_id, msg_idx) 稳定排序
+        // same timestamp: should be stably sorted by (file_id, msg_idx)
         let seg1 = make_seg(1, vec![100, 100]);
         let seg2 = make_seg(2, vec![100, 100]);
         let view = MergedView::from_segments(&[seg1, seg2]);
         assert_eq!(view.messages.len(), 4);
-        // 4 条都是 100ns
+        // all 4 are at 100ns
         for msg in view.messages.iter() {
             assert_eq!(msg.timestamp(), 100);
         }
-        // 排序：(100, fid=1, idx=0), (100, fid=1, idx=1), (100, fid=2, idx=0), (100, fid=2, idx=1)
+        // order: (100, fid=1, idx=0), (100, fid=1, idx=1), (100, fid=2, idx=0), (100, fid=2, idx=1)
         assert_eq!(view.source_file_ids, Arc::from([1u32, 1, 2, 2]));
     }
 }

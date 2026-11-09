@@ -1,13 +1,13 @@
 @echo off
-REM CANdata 快速打包脚本
+REM CANdata quick packaging script
 echo ========================================
-echo CANdata 打包工具
+echo CANdata packaging tool
 echo ========================================
 echo.
 
-REM 调用 PowerShell 脚本
+REM Call the PowerShell script
 powershell -ExecutionPolicy Bypass -File "%~dp0package.ps1" -Version "1.0.0"
 
 echo.
-echo 按任意键退出...
+echo Press any key to exit...
 pause >nul

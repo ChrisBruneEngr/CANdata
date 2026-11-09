@@ -5,7 +5,7 @@ use crate::BlfResultContext;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
-const FILE_SIGNATURE: u32 = 0x47474f4c; // "LOGG" (注意字节序)
+const FILE_SIGNATURE: u32 = 0x47474f4c; // "LOGG" (note the byte order)
 
 /// Represents the Windows SYSTEMTIME structure.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,9 +43,9 @@ impl SystemTime {
         })
     }
 
-    /// 转换为 Unix 时间戳（纳秒）
+    /// Convert to a Unix timestamp (ns).
     ///
-    /// 返回自 1970-01-01 00:00:00 UTC 以来的纳秒数
+    /// Returns the number of nanoseconds since 1970-01-01 00:00:00 UTC.
     pub fn to_timestamp_nanos(&self) -> i64 {
         use chrono::{TimeZone, Utc};
 
@@ -66,20 +66,20 @@ impl SystemTime {
         }
     }
 
-    /// 添加纳秒偏移，返回新的时间戳（纳秒）
+    /// Add a nanosecond offset and return the new timestamp (ns).
     ///
-    /// # 参数
-    /// - `offset_ns`: 偏移量（纳秒）
+    /// # Arguments
+    /// - `offset_ns`: offset (ns)
     ///
-    /// # 返回
-    /// 绝对时间戳（纳秒）
+    /// # Returns
+    /// Absolute timestamp (ns)
     pub fn add_nanoseconds(&self, offset_ns: u64) -> i64 {
         self.to_timestamp_nanos() + offset_ns as i64
     }
 
-    /// 格式化为字符串
+    /// Format as a string.
     ///
-    /// # 格式
+    /// # Format
     /// `YYYY-MM-DD HH:MM:SS.mmm`
     pub fn format(&self) -> String {
         format!(
@@ -88,19 +88,19 @@ impl SystemTime {
         )
     }
 
-    /// 格式化绝对时间（基准时间 + 偏移）
+    /// Format an absolute time (base time + offset).
     ///
-    /// # 参数
-    /// - `offset_ns`: 偏移量（纳秒）
+    /// # Arguments
+    /// - `offset_ns`: offset (ns)
     ///
-    /// # 返回
-    /// 格式化的时间字符串
+    /// # Returns
+    /// Formatted time string
     pub fn format_with_offset(&self, offset_ns: u64) -> String {
         use chrono::DateTime;
 
         let absolute_ns = self.add_nanoseconds(offset_ns);
 
-        // 转换为 DateTime
+        // Convert to DateTime
         if let Some(dt) = DateTime::from_timestamp(
             absolute_ns / 1_000_000_000,
             (absolute_ns % 1_000_000_000) as u32,
@@ -160,7 +160,7 @@ impl FileStatistics {
     /// 13. lastObjectTime (16 bytes - SYSTEMTIME)
     /// 14. reserved/restorePointsOffset (variable)
     pub fn read(cursor: &mut Cursor<&[u8]>) -> BlfParseResult<Self> {
-        // 读取文件签名 (字节序: 0x47474f4c = "LOGG")
+        // Read the file signature (byte order: 0x47474f4c = "LOGG")
         let signature = cursor
             .read_u32::<LittleEndian>()
             .map_err(BlfParseError::IoError)
@@ -169,19 +169,19 @@ impl FileStatistics {
             return Err(BlfParseError::InvalidFileMagic.context("FileStatistics.signature"));
         }
 
-        // 读取统计信息大小
+        // Read the statistics size
         let statistics_size = cursor
             .read_u32::<LittleEndian>()
             .map_err(BlfParseError::IoError)
             .context("FileStatistics.statistics_size")?;
 
-        // 读取 API number (在144字节格式中可能为0)
+        // Read the API number (may be 0 in the 144-byte format)
         let api_number = cursor
             .read_u32::<LittleEndian>()
             .map_err(BlfParseError::IoError)
             .context("FileStatistics.api_number")?;
 
-        // 读取应用程序信息
+        // Read the application info
         let application_id = cursor
             .read_u8()
             .map_err(BlfParseError::IoError)
@@ -199,7 +199,7 @@ impl FileStatistics {
             .map_err(BlfParseError::IoError)
             .context("FileStatistics.application_minor")?;
 
-        // 读取文件统计信息
+        // Read the file statistics
         let file_size = cursor
             .read_u64::<LittleEndian>()
             .map_err(BlfParseError::IoError)
@@ -213,17 +213,17 @@ impl FileStatistics {
             .map_err(BlfParseError::IoError)
             .context("FileStatistics.object_count")?;
 
-        // 读取 application build
+        // Read the application build
         let application_build = cursor
             .read_u32::<LittleEndian>()
             .map_err(BlfParseError::IoError)
             .context("FileStatistics.application_build")?;
 
-        // 读取时间戳信息
+        // Read the timestamp info
         let measurement_start_time = SystemTime::read(cursor).context("FileStatistics.measurement_start_time")?;
         let last_object_time = SystemTime::read(cursor).context("FileStatistics.last_object_time")?;
 
-        // 读取剩余的保留字段
+        // Read the remaining reserved fields
         let current_pos = cursor.position();
         let remaining_bytes = statistics_size as u64 - current_pos;
         if remaining_bytes > 0 {

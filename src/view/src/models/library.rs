@@ -1,11 +1,11 @@
 //! Signal library data models
 //!
-//! 提供信号库的数据结构定义，包括库、版本和通道映射
+//! Signal library data structures: libraries, versions and channel mappings.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// 数据库文件类型
+/// Database file type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DatabaseType {
@@ -37,22 +37,22 @@ impl DatabaseType {
     }
 }
 
-/// 通道数据库配置
+/// Per-channel database configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChannelDatabase {
-    /// 通道类型 (CAN/LIN)
+    /// Channel type (CAN/LIN)
     #[serde(default)]
     pub channel_type: crate::models::ChannelType,
-    /// 通道ID
+    /// Channel ID
     pub channel_id: u16,
-    /// 通道名称
+    /// Channel name
     pub channel_name: String,
-    /// 数据库文件路径
+    /// Database file path
     pub database_path: String,
 }
 
 impl ChannelDatabase {
-    /// 创建新的通道数据库配置
+    /// Create a new channel database configuration.
     pub fn new(
         channel_type: crate::models::ChannelType,
         channel_id: u16,
@@ -67,9 +67,9 @@ impl ChannelDatabase {
         }
     }
 
-    /// 验证通道配置
+    /// Validate the channel configuration.
     pub fn validate(&self) -> Result<(), String> {
-        // 检查通道ID是否有效（1-255）
+        // Check that the channel ID is valid (1-255)
         if self.channel_id == 0 || self.channel_id > 255 {
             return Err(format!(
                 "Invalid channel ID: {}. Must be between 1 and 255",
@@ -77,12 +77,12 @@ impl ChannelDatabase {
             ));
         }
 
-        // 检查通道名称是否为空
+        // Check that the channel name is not empty
         if self.channel_name.trim().is_empty() {
             return Err("Channel name cannot be empty".to_string());
         }
 
-        // 检查数据库文件路径是否为空
+        // Check that the database file path is not empty
         if self.database_path.trim().is_empty() {
             return Err("Database path cannot be empty".to_string());
         }
@@ -90,7 +90,7 @@ impl ChannelDatabase {
         Ok(())
     }
 
-    /// 获取数据库类型
+    /// Get the database type.
     pub fn database_type(&self) -> Option<DatabaseType> {
         std::path::Path::new(&self.database_path)
             .extension()
@@ -99,26 +99,26 @@ impl ChannelDatabase {
     }
 }
 
-/// 信号库版本
+/// Signal library version
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LibraryVersion {
-    /// 版本名称/号（如 "v1.0", "v2.1"）
+    /// Version name/number (e.g. "v1.0", "v2.1")
     pub name: String,
-    /// 默认数据库文件路径（向后兼容）
+    /// Default database file path (backward compatibility)
     pub path: String,
-    /// 创建日期
+    /// Creation date
     pub date: String,
-    /// 版本描述
+    /// Version description
     #[serde(default)]
     pub description: String,
-    /// 每个通道的数据库文件配置列表
-    /// 存储结构：按通道类型分组的配置
+    /// Database file configuration for each channel.
+    /// Stored grouped by channel type.
     #[serde(default)]
     pub channel_databases: Vec<ChannelDatabase>,
 }
 
 impl LibraryVersion {
-    /// 创建新版本
+    /// Create a new version.
     pub fn new(name: String, path: String, date: String) -> Self {
         Self {
             name,
@@ -129,18 +129,18 @@ impl LibraryVersion {
         }
     }
 
-    /// 设置描述
+    /// Set the description.
     pub fn with_description(mut self, description: String) -> Self {
         self.description = description;
         self
     }
 
-    /// 添加通道数据库配置
+    /// Add a channel database configuration.
     pub fn add_channel_database(&mut self, channel_db: ChannelDatabase) -> Result<(), String> {
-        // 验证通道配置
+        // Validate the channel configuration
         channel_db.validate()?;
 
-        // 检查通道ID是否已存在
+        // Check whether the channel ID already exists
         if self
             .channel_databases
             .iter()
@@ -156,14 +156,14 @@ impl LibraryVersion {
         Ok(())
     }
 
-    /// 获取指定通道的数据库配置
+    /// Get the database configuration for a channel.
     pub fn get_channel_database(&self, channel_id: u16) -> Option<&ChannelDatabase> {
         self.channel_databases
             .iter()
             .find(|db| db.channel_id == channel_id)
     }
 
-    /// 获取所有CAN通道
+    /// Get all CAN channels.
     pub fn get_can_channels(&self) -> Vec<&ChannelDatabase> {
         self.channel_databases
             .iter()
@@ -171,7 +171,7 @@ impl LibraryVersion {
             .collect()
     }
 
-    /// 获取所有LIN通道
+    /// Get all LIN channels.
     pub fn get_lin_channels(&self) -> Vec<&ChannelDatabase> {
         self.channel_databases
             .iter()
@@ -179,15 +179,15 @@ impl LibraryVersion {
             .collect()
     }
 
-    /// 获取通道数据库列表（用于向后兼容）
+    /// Get the channel database list (for backward compatibility).
     pub fn get_channel_map(&self) -> HashMap<u16, String> {
         let mut map = HashMap::new();
         for db in &self.channel_databases {
             map.insert(db.channel_id, db.database_path.clone());
         }
-        // 如果没有配置通道数据库，使用默认path
+        // If no channel databases are configured, use the default path
         if map.is_empty() && !self.path.is_empty() {
-            // 尝试推断通道ID
+            // Try to infer the channel ID
             if let Some(1) = Some(1) {
                 map.insert(1, self.path.clone());
             }
@@ -195,14 +195,14 @@ impl LibraryVersion {
         map
     }
 
-    /// 检查通道ID是否已被使用
+    /// Check whether a channel ID is already in use.
     pub fn is_channel_id_used(&self, channel_id: u16) -> bool {
         self.channel_databases
             .iter()
             .any(|db| db.channel_id == channel_id)
     }
 
-    /// 获取已使用的通道ID列表
+    /// Get the list of channel IDs in use.
     pub fn get_used_channel_ids(&self) -> Vec<u16> {
         self.channel_databases
             .iter()
@@ -210,7 +210,7 @@ impl LibraryVersion {
             .collect()
     }
 
-    /// 获取版本统计信息
+    /// Get version statistics.
     pub fn get_stats(&self) -> VersionStats {
         let can_count = self.get_can_channels().len();
         let lin_count = self.get_lin_channels().len();
@@ -223,7 +223,7 @@ impl LibraryVersion {
     }
 }
 
-/// 版本统计信息
+/// Version statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionStats {
     pub total_channels: usize,
@@ -231,17 +231,17 @@ pub struct VersionStats {
     pub lin_channels: usize,
 }
 
-/// 信号库
+/// Signal library
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SignalLibrary {
-    /// 库的唯一标识符
+    /// Unique library identifier
     pub id: String,
-    /// 库名称
+    /// Library name
     pub name: String,
-    /// 库的类型（CAN/LIN）
+    /// Library type (CAN/LIN)
     #[serde(default = "default_channel_type")]
     pub channel_type: super::ChannelType,
-    /// 版本列表（按版本号降序排列，最新版本在前）
+    /// Versions, sorted by version number descending (newest first)
     pub versions: Vec<LibraryVersion>,
 }
 
@@ -250,7 +250,7 @@ fn default_channel_type() -> super::ChannelType {
 }
 
 impl SignalLibrary {
-    /// 创建新库
+    /// Create a new library.
     pub fn new(id: String, name: String, channel_type: super::ChannelType) -> Self {
         Self {
             id,
@@ -260,22 +260,22 @@ impl SignalLibrary {
         }
     }
 
-    /// 获取最新版本
+    /// Get the latest version.
     pub fn latest_version(&self) -> Option<&LibraryVersion> {
         self.versions.first()
     }
 
-    /// 获取指定名称的版本
+    /// Get the version with the given name.
     pub fn get_version(&self, name: &str) -> Option<&LibraryVersion> {
         self.versions.iter().find(|v| v.name == name)
     }
 
-    /// 获取可变版本引用
+    /// Get a mutable reference to a version.
     pub fn get_version_mut(&mut self, name: &str) -> Option<&mut LibraryVersion> {
         self.versions.iter_mut().find(|v| v.name == name)
     }
 
-    /// 获取数据库类型
+    /// Get the database type.
     pub fn database_type(&self) -> DatabaseType {
         match self.channel_type {
             super::ChannelType::CAN => DatabaseType::DBC,
@@ -283,16 +283,16 @@ impl SignalLibrary {
         }
     }
 
-    /// 添加新版本
+    /// Add a new version.
     pub fn add_version(&mut self, version: LibraryVersion) {
-        // 检查是否已存在同名版本
+        // Check whether a version with the same name already exists
         if !self.versions.iter().any(|v| v.name == version.name) {
             self.versions.push(version);
             self.sort_versions();
         }
     }
 
-    /// 移除版本
+    /// Remove a version.
     pub fn remove_version(&mut self, name: &str) -> bool {
         if let Some(pos) = self.versions.iter().position(|v| v.name == name) {
             self.versions.remove(pos);
@@ -302,7 +302,7 @@ impl SignalLibrary {
         }
     }
 
-    /// 对版本进行排序（按版本号降序）
+    /// Sort versions (by version number, descending).
     pub fn sort_versions(&mut self) {
         self.versions.sort_by(|a, b| {
             let v_a = extract_version_number(&a.name);
@@ -311,14 +311,14 @@ impl SignalLibrary {
         });
     }
 
-    /// 检查库是否被使用
+    /// Check whether the library is in use.
     pub fn is_used(&self, mappings: &[super::ChannelMapping]) -> bool {
         mappings
             .iter()
             .any(|m| m.library_id.as_ref() == Some(&self.id))
     }
 
-    /// 获取使用此库的通道列表
+    /// Get the channels that use this library.
     pub fn used_channels(&self, mappings: &[super::ChannelMapping]) -> Vec<u16> {
         mappings
             .iter()
@@ -327,7 +327,7 @@ impl SignalLibrary {
             .collect()
     }
 
-    /// 获取当前激活的版本名称
+    /// Get the name of the active version.
     pub fn active_version_name(&self, mappings: &[super::ChannelMapping]) -> Option<String> {
         mappings
             .iter()
@@ -336,7 +336,7 @@ impl SignalLibrary {
     }
 }
 
-/// 从版本字符串中提取数字用于排序
+/// Extract the numbers from a version string for sorting.
 fn extract_version_number(version: &str) -> f64 {
     let cleaned = version
         .trim_start_matches('v')

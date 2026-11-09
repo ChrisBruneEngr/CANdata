@@ -1,20 +1,20 @@
 //! Three-column library management layout
 //!
-//! 按照LIBRARY_MANAGEMENT_REDESIGN.md文档实现的三栏布局：
-//! - 左栏：库列表
-//! - 中栏：版本列表
-//! - 右栏：通道配置
+//! Three-column layout:
+//! - Left column: library list
+//! - Middle column: version list
+//! - Right column: channel configuration
 
 use crate::models::{ChannelDatabase, ChannelMapping, LibraryVersion, SignalLibrary};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::input::{Input, InputState};
-/// 渲染三栏布局的库管理界面 - Zed IDE 风格
+/// Render the three-column library management view (Zed IDE style).
 ///
-/// 严格的三栏布局，中间用控制线隔开：
-/// - 左栏：库列表（固定宽度）
-/// - 中栏：版本列表（固定宽度）
-/// - 右栏：通道配置（自适应宽度）
+/// A strict three-column layout separated by divider lines:
+/// - Left column: library list (fixed width)
+/// - Middle column: version list (fixed width)
+/// - Right column: channel configuration (fills the remaining width)
 pub fn render_library_management_view(
     libraries: &[SignalLibrary],
     selected_library_id: &Option<String>,
@@ -49,8 +49,8 @@ pub fn render_library_management_view(
         .flex()
         .flex_row()
         .bg(rgb(0x0a0a0a))
-        .overflow_hidden() // 防止主容器滚动
-        // 左栏：库列表
+        .overflow_hidden() // keep the main container from scrolling
+        // Left column: library list
         .child(render_left_column(
             libraries,
             selected_library_id,
@@ -66,7 +66,7 @@ pub fn render_library_management_view(
             active_version_name,
             cx,
         ))
-        // 垂直分割线 1 - Zed IDE subtle divider
+        // Vertical divider 1 - Zed IDE subtle divider
         .child(
             div()
                 .w(px(1.0))
@@ -74,7 +74,7 @@ pub fn render_library_management_view(
                 .bg(rgb(0x252525)) // Zed-style subtle divider
                 .flex_shrink_0(),
         )
-        // 中栏：版本列表
+        // Middle column: version list
         .child(render_middle_column(
             libraries,
             selected_library_id,
@@ -91,7 +91,7 @@ pub fn render_library_management_view(
             active_version_name,
             cx,
         ))
-        // 垂直分割线 2 - Zed IDE subtle divider
+        // Vertical divider 2 - Zed IDE subtle divider
         .child(
             div()
                 .w(px(1.0))
@@ -99,7 +99,7 @@ pub fn render_library_management_view(
                 .bg(rgb(0x252525)) // Zed-style subtle divider
                 .flex_shrink_0(),
         )
-        // 右栏：通道配置
+        // Right column: channel configuration
         .child(render_right_column(
             libraries,
             selected_library_id,
@@ -116,7 +116,7 @@ pub fn render_library_management_view(
         ))
 }
 
-/// 左栏：库列表 - Zed IDE 风格
+/// Left column: library list (Zed IDE style)
 fn render_left_column(
     libraries: &[SignalLibrary],
     selected_library_id: &Option<String>,
@@ -133,13 +133,13 @@ fn render_left_column(
     cx: &mut Context<crate::CanDataApp>,
 ) -> impl IntoElement {
     div()
-        .w(px(280.0)) // 稍微窄一点，更紧凑
+        .w(px(280.0)) // slightly narrower, more compact
         .h_full()
         .flex()
         .flex_col()
         .overflow_hidden()
         .child(
-            // 固定的顶部区域：标题
+            // Fixed top area: title
             div()
                 .flex()
                 .items_center()
@@ -163,7 +163,7 @@ fn render_left_column(
                 ),
         )
         .child(
-            // 可滚动的库列表
+            // Scrollable library list
             div()
                 .flex_1()
                 .overflow_hidden()
@@ -189,7 +189,7 @@ fn render_left_column(
                 })
                 .when(!libraries.is_empty() || show_new_library_input, |this| {
                     let mut list = this;
-                    // 如果正在添加，先显示输入行
+                    // While adding, show the input row first
                     if show_new_library_input {
                         list = list.child(render_add_library_input_row(
                             library_name_input,
@@ -197,7 +197,7 @@ fn render_left_column(
                             cx,
                         ));
                     }
-                    // 然后显示所有库项
+                    // Then all library items
                     for library in libraries {
                         list = list.child(render_library_item(
                             library,
@@ -210,7 +210,7 @@ fn render_left_column(
                             cx,
                         ));
                     }
-                    // 最后显示添加按钮
+                    // Finally the add button
                     list.child(render_add_library_button(cx))
                 }),
         )
@@ -262,7 +262,7 @@ fn render_left_column(
         )
 }
 
-/// 渲染内联添加库输入行 - 完全融入列表
+/// Render the inline "add library" input row, blended into the list.
 fn render_add_library_input_row(
     library_name_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
     _new_library_name: &str,
@@ -298,7 +298,7 @@ fn render_add_library_input_row(
         })
 }
 
-/// 渲染单个库项 - Zed IDE 风格
+/// Render one library item (Zed IDE style).
 fn render_library_item(
     library: &SignalLibrary,
     selected_library_id: &Option<String>,
@@ -324,9 +324,9 @@ fn render_library_item(
         .py_1p5()
         .h(px(32.))
         .cursor_pointer()
-        .hover(|style| style.bg(rgb(0x1a1a1a))) // 更微妙的悬停
+        .hover(|style| style.bg(rgb(0x1a1a1a))) // subtler hover
         .when(is_selected, |el| {
-            el.bg(rgb(0x252525)) // 选中时更深的背景
+            el.bg(rgb(0x252525)) // darker background when selected
                 .border_l_1()
                 .border_color(rgb(0x89b4fa)) // Zed blue accent
         })
@@ -506,7 +506,7 @@ fn render_library_item(
         })
 }
 
-/// 渲染添加库按钮 - Zed IDE 风格
+/// Render the "add library" button (Zed IDE style).
 fn render_add_library_button(cx: &mut Context<crate::CanDataApp>) -> impl IntoElement {
     div()
         .id("add-lib-btn")
@@ -595,7 +595,7 @@ fn render_add_library_button(cx: &mut Context<crate::CanDataApp>) -> impl IntoEl
         )
 }
 
-/// 中栏：版本列表 - Zed IDE 风格
+/// Middle column: version list (Zed IDE style)
 fn render_middle_column(
     libraries: &[SignalLibrary],
     selected_library_id: &Option<String>,
@@ -612,7 +612,7 @@ fn render_middle_column(
     active_version_name: Option<&str>,
     cx: &mut Context<crate::CanDataApp>,
 ) -> impl IntoElement {
-    // 找到选中的库
+    // Find the selected library
     let selected_library = selected_library_id
         .as_ref()
         .and_then(|id| libraries.iter().find(|lib| &lib.id == id));
@@ -620,13 +620,13 @@ fn render_middle_column(
     let version_count = selected_library.map(|l| l.versions.len()).unwrap_or(0);
 
     div()
-        .w(px(280.0)) // 与左栏相同宽度
+        .w(px(280.0)) // same width as the left column
         .h_full()
         .flex()
         .flex_col()
         .overflow_hidden()
         .child(
-            // 固定的顶部区域：标题
+            // Fixed top area: title
             div()
                 .flex()
                 .items_center()
@@ -650,7 +650,7 @@ fn render_middle_column(
                 ),
         )
         .child(
-            // 可滚动的版本列表
+            // Scrollable version list
             div()
                 .flex_1()
                 .overflow_hidden()
@@ -671,7 +671,7 @@ fn render_middle_column(
                 .when_some(selected_library, |this, library| {
                     let mut list = this;
                     let lib_id = library.id.clone();
-                    // 显示现有版本列表
+                    // Show the existing versions
                     for version in &library.versions {
                         let version_name = version.name.clone();
                         let is_selected = selected_version_id.as_ref() == Some(&version_name);
@@ -688,7 +688,7 @@ fn render_middle_column(
                             cx,
                         ));
                     }
-                    // 添加内联版本输入行（当show_add_version_input为true时）
+                    // Inline "add version" input row (when show_add_version_input is true)
                     if show_add_version_input {
                         list = list.child(render_add_version_input_row(
                             version_name_input,
@@ -696,13 +696,13 @@ fn render_middle_column(
                             cx,
                         ));
                     }
-                    // 添加"Add Version"按钮
+                    // "Add Version" button
                     list.child(render_add_version_button(cx))
                 }),
         )
 }
 
-/// 渲染单个版本项 - Zed IDE 风格
+/// Render one version item (Zed IDE style).
 fn render_version_item(
     version: &LibraryVersion,
     version_name: String,
@@ -909,7 +909,7 @@ fn render_version_item(
         })
 }
 
-/// 右栏：通道配置 - Zed IDE 风格
+/// Right column: channel configuration (Zed IDE style)
 fn render_right_column(
     libraries: &[SignalLibrary],
     selected_library_id: &Option<String>,
@@ -924,12 +924,12 @@ fn render_right_column(
     editing_channel_index: Option<usize>, // Row being edited, if any
     cx: &mut Context<crate::CanDataApp>,
 ) -> impl IntoElement {
-    // 找到选中的库和版本
+    // Find the selected library and version
     let selected_library = selected_library_id
         .as_ref()
         .and_then(|id| libraries.iter().find(|lib| &lib.id == id));
 
-    // 使用选中的版本名称而不是最新版本
+    // Use the selected version name, not the latest version
     let selected_version = selected_library.and_then(|lib| {
         selected_version_id
             .as_ref()
@@ -964,13 +964,13 @@ fn render_right_column(
     };
 
     div()
-        .flex_1() // 自适应剩余宽度
+        .flex_1() // fill the remaining width
         .h_full()
         .flex()
         .flex_col()
         .overflow_hidden()
         .child(
-            // 固定的顶部区域：标题
+            // Fixed top area: title
             div()
                 .flex()
                 .flex_col()
@@ -987,7 +987,7 @@ fn render_right_column(
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(rgb(0xcdd6f4)) // Zed 文本色
+                                .text_color(rgb(0xcdd6f4)) // Zed text color
                                 .child("Channel Configuration"),
                         )
                         .child(
@@ -1030,14 +1030,14 @@ fn render_right_column(
                 ),
         )
         .child(
-            // 可滚动的通道列表
+            // Scrollable channel list
             div()
                 .flex_1()
                 .overflow_hidden()
                 .flex()
                 .flex_col()
                 .when_some(selected_version, |this, _version| {
-                    // 添加表头
+                    // Table header
                     this.child(
                         div()
                             .px_3()
@@ -1049,7 +1049,7 @@ fn render_right_column(
                             .items_center()
                             .gap_3()
                             .child(
-                                // Type 列
+                                // Type column
                                 div().w(px(60.0)).flex_shrink_0().child(
                                     div()
                                         .text_xs()
@@ -1059,7 +1059,7 @@ fn render_right_column(
                                 ),
                             )
                             .child(
-                                // CH 列（通道编号）
+                                // CH column (channel number)
                                 div().w(px(50.0)).flex_shrink_0().child(
                                     div()
                                         .text_xs()
@@ -1069,7 +1069,7 @@ fn render_right_column(
                                 ),
                             )
                             .child(
-                                // Name 列
+                                // Name column
                                 div().w(px(120.0)).flex_shrink_0().child(
                                     div()
                                         .text_xs()
@@ -1079,7 +1079,7 @@ fn render_right_column(
                                 ),
                             )
                             .child(
-                                // Database Path 列
+                                // Database Path column
                                 div().flex_1().min_w_0().child(
                                     div()
                                         .text_xs()
@@ -1114,7 +1114,7 @@ fn render_right_column(
                         })
                         .when_some(selected_version, |this, version| {
                             let mut list = this;
-                            // 显示现有通道列表
+                            // Show the existing channels
                             for (index, channel_db) in version.channel_databases.iter().enumerate() {
                                 if show_add_channel_input && editing_channel_index == Some(index) {
                                     // Edit in place, using the same form as Add Channel
@@ -1132,7 +1132,7 @@ fn render_right_column(
                                     list = list.child(render_channel_item(index, channel_db, cx));
                                 }
                             }
-                            // 显示输入框（如果show_add_channel_input为true）
+                            // Show the input row (if show_add_channel_input is true)
                             if show_add_channel_input && editing_channel_index.is_none() {
                                 list = list.child(render_add_channel_input_row_with_path(
                                     channel_id_input,
@@ -1145,14 +1145,14 @@ fn render_right_column(
                                     cx,
                                 ));
                             }
-                            // 显示"Add Channel"按钮
+                            // "Add Channel" button
                             list.child(render_add_channel_button(cx))
                         }),
                 ),
         )
 }
 
-/// 渲染单个通道项 - 完整的单行列表显示
+/// Render one channel item as a full single-row entry.
 fn render_channel_item(
     index: usize,
     channel_db: &ChannelDatabase,
@@ -1183,7 +1183,7 @@ fn render_channel_item(
         .items_center()
         .gap_3()
         .child(
-            // 通道类型 - 固定宽度
+            // Channel type - fixed width
             div().w(px(60.0)).flex_shrink_0().child(
                 div()
                     .text_sm()
@@ -1201,7 +1201,7 @@ fn render_channel_item(
             ),
         )
         .child(
-            // 通道ID - 固定宽度，只显示数字
+            // Channel ID - fixed width, number only
             div().w(px(50.0)).flex_shrink_0().child(
                 div()
                     .text_sm()
@@ -1211,7 +1211,7 @@ fn render_channel_item(
             ),
         )
         .child(
-            // 通道名称 - 固定宽度
+            // Channel name - fixed width
             div().w(px(120.0)).flex_shrink_0().child(
                 div()
                     .text_sm()
@@ -1266,7 +1266,7 @@ fn render_channel_item(
                 ),
         )
         .child(
-            // 删除按钮
+            // Delete button
             div()
                 .id(format!("ch-del-{}", channel_id))
                 .w(px(16.))
@@ -1373,7 +1373,7 @@ fn open_channel_form(
                 this.new_channel_name = input.read(cx).text().to_string();
             }
             gpui_component::input::InputEvent::PressEnter { .. } => {
-                // 让 render 在下次帧调 window.blur()，name 输入框光标自然消失
+                // Have render call window.blur() next frame so the name input's cursor goes away
                 this.pending_add_channel_focus =
                     Some(crate::app::PendingAddChannelFocus::ChannelBlur);
                 cx.notify();
@@ -1388,7 +1388,7 @@ fn open_channel_form(
     cx.notify();
 }
 
-/// 渲染内联添加通道输入行 - 带预读取的路径和entity（避免在渲染时读取entity）
+/// Render the inline "add channel" input row, with the path and entity read ahead (so the entity isn't read during render).
 fn render_add_channel_input_row_with_path(
     channel_id_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
     channel_name_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
@@ -1418,7 +1418,7 @@ fn render_add_channel_input_row_with_path(
             // (see render_add_channel_button) and the ✓ Confirm button.
         }))
         .child(
-            // 类型选择器 - 可点击切换，宽度与表头对齐
+            // Type selector - click to toggle; width matches the header
             div().w(px(60.0)).flex_shrink_0().child(
                 div()
                     .id("add-ch-type-toggle")
@@ -1446,7 +1446,7 @@ fn render_add_channel_input_row_with_path(
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, _event, _window, cx| {
-                            // 切换通道类型
+                            // Toggle the channel type
                             this.new_channel_type =
                                 if this.new_channel_type == crate::models::ChannelType::CAN {
                                     crate::models::ChannelType::LIN
@@ -1459,7 +1459,7 @@ fn render_add_channel_input_row_with_path(
             ),
         )
         .child(
-            // 通道ID输入
+            // Channel ID input
             div()
                 .w(px(50.0))
                 .flex_shrink_0()
@@ -1477,7 +1477,7 @@ fn render_add_channel_input_row_with_path(
                 }),
         )
         .child(
-            // 通道名称输入
+            // Channel name input
             div()
                 .w(px(120.0))
                 .flex_shrink_0()
@@ -1495,7 +1495,7 @@ fn render_add_channel_input_row_with_path(
                 }),
         )
         .child(
-            // 数据库路径显示 - 只读，通过Browse按钮选择
+            // Database path display - read-only, chosen with the Browse button
             div()
                 .flex_1()
                 .min_w_0()
@@ -1503,22 +1503,22 @@ fn render_add_channel_input_row_with_path(
                 .gap_2()
                 .items_center()
                 .child(
-                    // 显示已选择的路径或提示文本
+                    // Show the chosen path or a hint
                     div().flex_1().min_w_0().child(
                         div()
                             .text_sm()
                             .text_color(if path_is_empty {
-                                rgb(0x646473) // 灰色提示
+                                rgb(0x646473) // gray hint
                             } else {
-                                rgb(0xcdd6f4) // 白色文本
+                                rgb(0xcdd6f4) // white text
                             })
                             .truncate()
                             .child(path_text),
                     ),
                 )
                 .child({
-                    // 文件选择按钮 - 选择后自动保存
-                    // 使用预先clone的entity，避免在 .when_some() 内部读取
+                    // File picker button - saves automatically after choosing
+                    // Uses the entity cloned ahead of time, so it isn't read inside .when_some()
                     if let Some(this) = entity_clone {
                         div()
                             .px_3()
@@ -1547,7 +1547,7 @@ fn render_add_channel_input_row_with_path(
                                     {
                                         let path_str = file.path().to_string_lossy().to_string();
                                         this.update(cx, |view, _cx| {
-                                            // 保存文件路径
+                                            // Save the file path
                                             view.new_channel_db_path = path_str.clone();
                                             eprintln!("📁 File selected: {}", path_str);
 
@@ -1558,7 +1558,7 @@ fn render_add_channel_input_row_with_path(
                                                 }
                                             }
 
-                                            // 自动保存通道配置
+                                            // Auto-save the channel configuration
                                             // view.save_channel_config(cx); // Removed auto-save to allow user to input ID/Name after file selection
                                         });
                                     }
@@ -1573,7 +1573,7 @@ fn render_add_channel_input_row_with_path(
                 }),
         )
         .child(
-            // 操作按钮：确认和取消
+            // Action buttons: confirm and cancel
             div()
                 .flex()
                 .items_center()
@@ -1581,7 +1581,7 @@ fn render_add_channel_input_row_with_path(
                 .ml_2()
                 .flex_shrink_0()
                 .child(
-                    // 确认按钮
+                    // Confirm button
                     // Note: Enter-on-✓ requires a FocusHandle (out of scope per
                     // plan Task 8 design note). User clicks ✓ or tabs to it via
                     // the row container's focus.
@@ -1610,7 +1610,7 @@ fn render_add_channel_input_row_with_path(
                         ),
                 )
                 .child(
-                    // 取消按钮
+                    // Cancel button
                     div()
                         .id("add-ch-cancel")
                         .w(px(20.))
@@ -1637,7 +1637,7 @@ fn render_add_channel_input_row_with_path(
         )
 }
 
-/// 渲染内联添加版本输入行 - 完全融入列表
+/// Render the inline "add version" input row, blended into the list.
 fn render_add_version_input_row(
     version_name_input: Option<&gpui::Entity<gpui_component::input::InputState>>,
     _new_version_name: &str,
@@ -1678,14 +1678,14 @@ fn render_add_version_input_row(
         )
 }
 
-/// 渲染添加版本按钮 - 简洁单行形式
+/// Render the "add version" button as a compact single row.
 fn render_add_version_button(cx: &mut Context<crate::CanDataApp>) -> impl IntoElement {
     div()
         .id("add-version-btn")
         .px_3()
-        .py_1() // 减少padding，更紧凑
+        .py_1() // less padding, more compact
         .mb_1()
-        .h(px(32.)) // 固定单行高度
+        .h(px(32.)) // fixed single-row height
         .border_1()
         .border_dashed()
         .border_color(rgb(0x45475a)) // Zed border

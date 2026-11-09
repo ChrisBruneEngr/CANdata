@@ -2,7 +2,7 @@
 //!
 //! This module contains the core application state structures.
 
-/// 多文件加载进度
+/// Multi-file loading progress
 #[derive(Clone, Debug, Default)]
 pub struct LoadingProgress {
     pub total_files: usize,
@@ -70,7 +70,7 @@ pub struct CanDataApp {
 
     // Currently loaded BLF file name (for StatusBar display)
     pub current_file_name: Option<String>,
-    // 多文件加载状态
+    // Multi-file loading state
     pub files: Vec<std::sync::Arc<crate::domain::multi_file::FileSegment>>,
     pub merged: crate::domain::multi_file::MergedView,
     pub show_files_popover: bool,

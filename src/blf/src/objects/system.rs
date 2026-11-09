@@ -93,13 +93,13 @@ impl SystemTime {
         })
     }
     
-    /// 转换为 Unix 时间戳（秒）
+    /// Convert to a Unix timestamp (seconds).
     /// 
-    /// 返回自 1970-01-01 00:00:00 UTC 以来的秒数
+    /// Returns the number of seconds since 1970-01-01 00:00:00 UTC.
     pub fn to_timestamp(&self) -> i64 {
         use chrono::{TimeZone, Utc};
         
-        // 创建 DateTime
+        // Create the DateTime
         if let Some(dt) = Utc.with_ymd_and_hms(
             self.year as i32,
             self.month as u32,
@@ -110,13 +110,13 @@ impl SystemTime {
         ).single() {
             dt.timestamp() + (self.milliseconds as i64) / 1000
         } else {
-            0 // 无效日期返回 0
+            0 // invalid date returns 0
         }
     }
     
-    /// 转换为 Unix 时间戳（纳秒）
+    /// Convert to a Unix timestamp (ns).
     /// 
-    /// 返回自 1970-01-01 00:00:00 UTC 以来的纳秒数
+    /// Returns the number of nanoseconds since 1970-01-01 00:00:00 UTC.
     pub fn to_timestamp_nanos(&self) -> i64 {
         use chrono::{TimeZone, Utc};
         
@@ -134,20 +134,20 @@ impl SystemTime {
         }
     }
     
-    /// 添加纳秒偏移，返回新的时间戳（纳秒）
+    /// Add a nanosecond offset and return the new timestamp (ns).
     /// 
-    /// # 参数
-    /// - `offset_ns`: 偏移量（纳秒）
+    /// # Arguments
+    /// - `offset_ns`: offset (ns)
     /// 
-    /// # 返回
-    /// 绝对时间戳（纳秒）
+    /// # Returns
+    /// Absolute timestamp (ns)
     pub fn add_nanoseconds(&self, offset_ns: u64) -> i64 {
         self.to_timestamp_nanos() + offset_ns as i64
     }
     
-    /// 格式化为字符串
+    /// Format as a string.
     /// 
-    /// # 格式
+    /// # Format
     /// `YYYY-MM-DD HH:MM:SS.mmm`
     pub fn format(&self) -> String {
         format!(
@@ -157,19 +157,19 @@ impl SystemTime {
         )
     }
     
-    /// 格式化绝对时间（基准时间 + 偏移）
+    /// Format an absolute time (base time + offset).
     /// 
-    /// # 参数
-    /// - `offset_ns`: 偏移量（纳秒）
+    /// # Arguments
+    /// - `offset_ns`: offset (ns)
     /// 
-    /// # 返回
-    /// 格式化的时间字符串
+    /// # Returns
+    /// Formatted time string
     pub fn format_with_offset(&self, offset_ns: u64) -> String {
         use chrono::{DateTime, Utc};
         
         let absolute_ns = self.add_nanoseconds(offset_ns);
         
-        // 转换为 DateTime
+        // Convert to DateTime
         if let Some(dt) = DateTime::from_timestamp(
             absolute_ns / 1_000_000_000,
             (absolute_ns % 1_000_000_000) as u32

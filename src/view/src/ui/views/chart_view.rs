@@ -458,10 +458,10 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
 
     // Constant offsets based on layout:
     //   sidebar 320 → v_flex p_4 left 16 → card p_2 left 8 → canvas pad_left 36
-    // 每张 chart 卡片的实际绘图区原点（相对于窗口左边）= 380px，
-    // 右边界 = window_width - 16 - 8 - 4 = window_width - 28。
-    // 之前用 chart_start_x = 336 当绘图原点，导致 hover 竖线、zoom 拖拽框、
-    // 缩放中心都向左偏 ~44px。
+    // Each chart card's actual plot origin (relative to the window's left edge) = 380px,
+    // right edge = window_width - 16 - 8 - 4 = window_width - 28.
+    // Using chart_start_x = 336 as the plot origin used to shift the hover line, zoom drag box
+    // and zoom center ~44px to the left.
     let sidebar_offset = px(320.0);
     let draw_origin_x = DRAW_ORIGIN_X;
     let draw_right_margin = DRAW_RIGHT_MARGIN;
@@ -685,7 +685,7 @@ fn zoom_with_wheel(this: &mut CanDataApp, event: &ScrollWheelEvent, window: &Win
         gpui::ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
     };
 
-    // Mac 触控板会产生大量微小滚动事件，过低的阈值会导致轻微触碰就触发缩放。
+    // Touchpads produce many tiny scroll events; too low a threshold makes the lightest touch zoom.
     if scroll_delta.abs() < 0.5 {
         return true;
     }
@@ -695,7 +695,7 @@ fn zoom_with_wheel(this: &mut CanDataApp, event: &ScrollWheelEvent, window: &Win
     // Scroll forward (away from user) = negative delta = zoom OUT
     let zoom_in = scroll_delta > 0.0;
 
-    // 单次缩放系数：1.1 比之前的 1.2 更平缓，避免一次滚动跳太多
+    // Zoom factor per step: 1.1 is gentler than the old 1.2, so one scroll doesn't jump too far
     let zoom_factor = 1.1;
 
     let (new_min, new_max) = if zoom_in {
@@ -727,8 +727,8 @@ fn zoom_with_wheel(this: &mut CanDataApp, event: &ScrollWheelEvent, window: &Win
                 // all points at the same time → use 1/1000 of range
                 (abs_range / 1000.0).max(1e-6)
             } else {
-                // 至少保留 2 个点可见：窗口宽度 >= 2 * 最小间隔，
-                // 即使窗口偏移到中间也至少能覆盖 2 个相邻点。
+                // Keep at least 2 points visible: window width >= 2 * minimum spacing,
+                // so even a window offset to the middle covers at least 2 adjacent points.
                 (smallest_gap * 2.0).max(1e-6)
             }
         } else {
@@ -755,8 +755,8 @@ fn zoom_with_wheel(this: &mut CanDataApp, event: &ScrollWheelEvent, window: &Win
         (new_min, new_max)
     } else {
         // Zoom out: expand toward full data range, centered on mouse.
-        // 用一个更激进的步长：至少扩展 abs_range 的 10%，避免从极小 zoom
-        // 花几十次滚动才能缩回来。
+        // Use a more aggressive step: expand by at least 10% of abs_range, so zooming out
+        // from a tiny zoom doesn't take dozens of scrolls.
         let abs_range = abs_max_t - abs_min_t;
         let new_range = (current_range * zoom_factor).max(current_range + 0.1 * abs_range);
 
@@ -1218,7 +1218,7 @@ fn render_lane_plot(
     .size_full()
 }
 
-/// Canvas 自绘坐标变换参数
+/// Coordinate transform parameters for custom canvas drawing
 struct ChartLayout {
     bounds: gpui::Bounds<gpui::Pixels>,
     min_t: f64,
@@ -1728,16 +1728,16 @@ fn update_cursor_values(app: &mut CanDataApp) {
     app.plot_cursor_values = values;
 }
 
-/// 按 80px/刻度估算 X 轴刻度数量，clamp [2, 6]。
-/// chart_w_px 是 canvas 内可用于画折线的水平像素（已扣除左右 padding）。
+/// Estimate the number of X-axis ticks at 80px per tick, clamped to [2, 6].
+/// chart_w_px is the horizontal pixels in the canvas available for the lines (left/right padding removed).
 pub fn calc_x_tick_count(chart_w_px: f32) -> usize {
     let approx = (chart_w_px / 80.0).floor() as usize;
     approx.clamp(2, 6)
 }
 
-/// 按 50px/刻度估算 Y 轴刻度数量，clamp [3, 8]。
-/// chart_h_px 是 canvas 内可用于画折线的垂直像素（已扣除上下 padding）。
-/// 至少 3 个 (max / mid / min)，最多 8 个（避免标签过密）。
+/// Estimate the number of Y-axis ticks at 50px per tick, clamped to [3, 8].
+/// chart_h_px is the vertical pixels in the canvas available for the lines (top/bottom padding removed).
+/// At least 3 (max / mid / min), at most 8 (so labels aren't too dense).
 pub fn calc_y_tick_count(chart_h_px: f32) -> usize {
     let approx = (chart_h_px / 50.0).floor() as usize;
     approx.clamp(3, 8)

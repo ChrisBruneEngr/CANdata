@@ -23,33 +23,33 @@ pub struct BlfResult {
 }
 
 impl BlfResult {
-    /// 将相对时间戳（纳秒）转换为绝对时间戳（纳秒）
+    /// Convert a relative timestamp (ns) to an absolute timestamp (ns).
     ///
-    /// # 参数
-    /// - `relative_ns`: 相对于测量开始时间的偏移量（纳秒）
+    /// # Arguments
+    /// - `relative_ns`: offset from the measurement start time (ns)
     ///
-    /// # 返回
-    /// 绝对时间戳（纳秒，自 Unix epoch）
+    /// # Returns
+    /// Absolute timestamp (ns since the Unix epoch)
     pub fn to_absolute_timestamp_ns(&self, relative_ns: u64) -> i64 {
         self.file_stats
             .measurement_start_time
             .add_nanoseconds(relative_ns)
     }
 
-    /// 格式化时间戳为字符串
+    /// Format a timestamp as a string.
     ///
-    /// # 参数
-    /// - `relative_ns`: 相对于测量开始时间的偏移量（纳秒）
+    /// # Arguments
+    /// - `relative_ns`: offset from the measurement start time (ns)
     ///
-    /// # 返回
-    /// 格式化的时间字符串（YYYY-MM-DD HH:MM:SS.ffffff）
+    /// # Returns
+    /// Formatted time string (YYYY-MM-DD HH:MM:SS.ffffff)
     pub fn format_timestamp(&self, relative_ns: u64) -> String {
         self.file_stats
             .measurement_start_time
             .format_with_offset(relative_ns)
     }
 
-    /// 获取测量开始时间的格式化字符串
+    /// Get the measurement start time as a formatted string.
     pub fn measurement_start_time_str(&self) -> String {
         self.file_stats.measurement_start_time.format()
     }
@@ -311,7 +311,7 @@ mod tests {
         // Correctly calculate the object size
         let calculated_size = log_container.calculate_object_size();
 
-        // 更新LogContainer的header大小
+        // Update the LogContainer header size
         log_container.header.object_size = calculated_size;
 
         let mut container_bytes = serialize_log_container(&log_container);

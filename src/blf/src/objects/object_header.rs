@@ -306,13 +306,13 @@ impl ObjectHeader {
         let mut reserved = 0;
 
         if base.header_version == 1 {
-            // V1 header 解析
-            // 注意：有些 BLF 文件的 header_size 字段不准确
-            // 即使 header_size=16，实际数据中也可能包含完整的 32 字节 header
-            // 我们需要根据实际可用数据来判断
+            // V1 header parsing
+            // Note: some BLF files have an inaccurate header_size field.
+            // Even with header_size=16, the data may contain a full 32-byte header,
+            // so decide based on the data actually available.
 
             if base.header_size >= 32 {
-                // 标准的完整 V1 header (32 字节)
+                // Standard full V1 header (32 bytes)
                 object_flags = cursor
                     .read_u32::<LittleEndian>()
                     .map_err(BlfParseError::IoError)
@@ -330,14 +330,14 @@ impl ObjectHeader {
                     .map_err(BlfParseError::IoError)
                     .context("ObjectHeader.object_time_stamp")?;
             } else if base.header_size == 16 {
-                // header_size 声称是 16 字节，但我们尝试读取完整数据
-                // 因为很多 BLF 文件的 header_size 字段不准确
+                // header_size claims 16 bytes, but try to read the full header anyway,
+                // because many BLF files have an inaccurate header_size field
 
-                // 检查是否还有足够的数据（至少 16 字节）
+                // Check whether enough data remains (at least 16 bytes)
                 let remaining = cursor.get_ref().len() - cursor.position() as usize;
 
                 if remaining >= 16 {
-                    // 有足够数据，尝试读取完整 header
+                    // Enough data: try to read the full header
                     object_flags = cursor
                         .read_u32::<LittleEndian>()
                         .map_err(BlfParseError::IoError)
@@ -355,8 +355,8 @@ impl ObjectHeader {
                         .map_err(BlfParseError::IoError)
                         .context("ObjectHeader.object_time_stamp")?;
                 } else {
-                    // 数据不足，这才是真正的紧凑型 header
-                    // 保持默认值（全零）
+                    // Not enough data: this really is a compact header,
+                    // so keep the default values (all zero)
                 }
             } else {
                 return Err(BlfParseError::UnknownHeaderVersion(base.header_version)

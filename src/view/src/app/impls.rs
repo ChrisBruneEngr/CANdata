@@ -141,7 +141,7 @@ impl CanDataApp {
             signal_set_name_input: None,
         };
 
-        // 🔧 启动时加载配置
+        // 🔧 Load the configuration at startup
         app.load_startup_config();
 
         app
@@ -155,7 +155,7 @@ impl CanDataApp {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 match serde_json::from_str::<AppConfig>(&content) {
                     Ok(config) => {
-                        // 保存配置
+                        // Save the configuration
                         self.app_config = config.clone();
                         self.config_dir = Some(
                             path.parent()
@@ -164,16 +164,16 @@ impl CanDataApp {
                         );
                         self.config_file_path = Some(path);
 
-                        // 🔧 加载信号库
+                        // 🔧 Load the signal libraries
                         if !config.libraries.is_empty() {
-                            eprintln!("📚 加载信号库配置...");
-                            eprintln!("  找到 {} 个信号库", config.libraries.len());
+                            eprintln!("📚 Loading signal library configuration...");
+                            eprintln!("  Found {} signal libraries", config.libraries.len());
 
-                            // 将库加载到 library_manager
+                            // Load the libraries into library_manager
                             self.library_manager =
                                 LibraryManager::from_libraries(config.libraries.clone());
 
-                            // 统计信息并显示
+                            // Collect and show statistics
                             let (lib_count, ver_count, chan_count) =
                                 Self::display_library_stats(&self.library_manager);
 
@@ -183,13 +183,13 @@ impl CanDataApp {
                             )
                             .into();
 
-                            // 🔄 自动加载每个通道激活的版本
+                            // 🔄 Auto-load the active version for each channel
                             for mapping in &config.mappings {
                                 if let (Some(lib_id), Some(ver_name)) =
                                     (&mapping.library_id, &mapping.version_name)
                                 {
                                     eprintln!(
-                                        "  🔄 自动加载通道 {} 的库 {} 版本 {}",
+                                        "  🔄 Auto-loading channel {} library {} version {}",
                                         mapping.channel_id, lib_id, ver_name
                                     );
                                     // Actually, we can just load it directly since we don't need UI context for the core load
@@ -215,17 +215,17 @@ impl CanDataApp {
                             format!("Config load error: {}. Using default config.", e).into();
                         // Initialize with empty config instead of failing
                         self.app_config = AppConfig::default();
-                        eprintln!("❌ 配置加载失败: {}", e);
+                        eprintln!("❌ Failed to load configuration: {}", e);
                     }
                 }
             }
         } else {
             self.status_msg = "Ready - GPUI version initialized".into();
-            eprintln!("ℹ️  未找到配置文件，使用默认配置");
+            eprintln!("ℹ️  No configuration file found; using defaults");
         }
     }
 
-    /// 单文件 Replace:清空 files,加入单个 segment,重建 merged
+    /// Single-file Replace: clear files, add one segment, rebuild merged.
     pub(crate) fn apply_blf_result_single(
         &mut self,
         result: anyhow::Result<BlfResult>,
@@ -238,13 +238,13 @@ impl CanDataApp {
                     Self::log_blf_errors(&result.errors, result.objects.len());
                 }
 
-                // Replace 模式：清空所有已有数据
+                // Replace mode: clear all existing data
                 self.files.clear();
                 self.merged = crate::domain::multi_file::MergedView::empty();
                 self.plot_data = std::sync::Arc::from([]);
                 self.plot_full_data = std::sync::Arc::from([]);
                 self.selected_signals.clear();
-                // 清理可能残留的 loading_progress（多文件加载未完成时单选触发）
+                // Clear any leftover loading_progress (a single open during an unfinished multi-file load)
                 self.loading_progress = None;
 
                 self.current_view = AppView::LogView;
@@ -280,7 +280,7 @@ impl CanDataApp {
                 self.library_picker_selected_version.clear();
             }
             Err(e) => {
-                // Replace 模式失败：不清空已有数据，保留旧的 files/messages
+                // Replace mode failed: keep the existing files/messages
                 self.status_msg = format!("❌ File Error: {}", e).into();
                 Self::display_blf_load_error(&e);
                 self.blf_bytes_total = 0;
@@ -291,13 +291,13 @@ impl CanDataApp {
         }
     }
 
-    /// 多文件 Append:单个文件解析完成时调用,追加 segment 后重建 merged
+    /// Multi-file Append: called when one file finishes parsing; appends its segment and rebuilds merged.
     pub(crate) fn apply_blf_result_append_one(
         &mut self,
         result: anyhow::Result<BlfResult>,
         path: PathBuf,
     ) {
-        // 检查取消标志:已取消则不再追加新完成的 segment
+        // Check the cancel flag: once cancelled, don't append newly finished segments
         if let Some(p) = &self.loading_progress {
             if p.is_cancelled {
                 return;
@@ -326,17 +326,17 @@ impl CanDataApp {
                 self.rebuild_merged();
                 self.messages = self.merged.messages.clone();
                 self.clear_plot_cursor();
-                // 更新 start_time 为所有文件中最早的 measurement_start_time
+                // Set start_time to the earliest measurement_start_time across all files
                 self.start_time = self.files.iter().filter_map(|f| f.start_time).min();
 
-                // 更新汇总进度
+                // Update the overall progress
                 if let Some(p) = &mut self.loading_progress {
                     p.completed_files += 1;
                     p.total_messages_so_far += msg_count;
                     p.current_file_name = file_name.clone();
                 }
 
-                // 更新 StatusBar
+                // Update the status bar
                 let total_files = self.files.len();
                 let total_msgs = self.messages.len();
                 let failed = self.files.iter().filter(|f| !f.errors.is_empty()).count();
@@ -376,7 +376,7 @@ impl CanDataApp {
                     ).into();
                 }
 
-                // 所有文件加载完成:清理 loading_progress
+                // All files loaded: clear loading_progress
                 if all_done {
                     self.loading_progress = None;
                 }
@@ -384,7 +384,7 @@ impl CanDataApp {
                 self.current_file_name = file_name;
             }
             Err(e) => {
-                // Append 模式单文件失败:保留失败文件占位,messages 为空
+                // Append mode, one file failed: keep a placeholder for it with no messages
                 let file_id = next_file_id();
                 let segment = crate::domain::multi_file::FileSegment {
                     file_id,
@@ -417,7 +417,7 @@ impl CanDataApp {
                     total_files - failed, total_files, failed
                 ).into();
 
-                // 所有文件加载完成:清理 loading_progress
+                // All files loaded: clear loading_progress
                 if all_done {
                     self.loading_progress = None;
                 }
@@ -425,20 +425,20 @@ impl CanDataApp {
         }
     }
 
-    /// 重建 merged 视图(所有 file 增删后调用)
+    /// Rebuild the merged view (call after any file is added or removed).
     pub(crate) fn rebuild_merged(&mut self) {
         let segments: Vec<std::sync::Arc<crate::domain::multi_file::FileSegment>> =
             self.files.iter().cloned().collect();
         self.merged = crate::domain::multi_file::MergedView::from_segments(&segments);
     }
 
-    /// 移除单个文件
+    /// Remove one file.
     pub(crate) fn remove_file(&mut self, file_id: u32) {
         self.files.retain(|f| f.file_id != file_id);
         self.rebuild_merged();
         self.messages = self.merged.messages.clone();
         self.clear_plot_cursor();
-        // 更新 start_time 为剩余文件中最早的 measurement_start_time
+        // Set start_time to the earliest measurement_start_time among the remaining files
         self.start_time = self.files.iter().filter_map(|f| f.start_time).min();
         let total_files = self.files.len();
         let total_msgs = self.messages.len();
@@ -456,9 +456,9 @@ impl CanDataApp {
         }
     }
 
-    /// 移除所有文件
+    /// Remove all files.
     pub(crate) fn remove_all_files(&mut self) {
-        // 若正在加载,标记取消以阻止待处理任务重新填充 files
+        // If a load is in progress, mark it cancelled so pending tasks don't refill files
         if let Some(p) = &mut self.loading_progress {
             p.is_cancelled = true;
         }
@@ -1074,7 +1074,7 @@ impl CanDataApp {
         // Save config
         self.save_config(cx);
 
-        // 刷新 plot 数据：库版本变了，已选信号对应的 series 要重新从新 DBC 提取
+        // Refresh plot data: the library version changed, so re-extract the selected signals' series from the new DBC
         crate::ui::views::chart_view::extract_and_update_series_data(self);
 
         self.status_msg =
@@ -1095,8 +1095,8 @@ impl CanDataApp {
         // Persist active state so it survives restarts
         self.app_config.active_library_id = Some(library_id.to_string());
         self.app_config.active_version_name = Some(version_name.to_string());
-        // 右侧 lib badge 已经显示 `📚 lib_name / version_name`,
-        // status_msg 不再重复库名,避免激活时出现两个 library 引用。
+        // The lib badge on the right already shows `📚 lib_name / version_name`,
+        // so status_msg doesn't repeat the library name (avoids two library mentions on activation).
         self.status_msg = "✅ Library activated".into();
         self.save_config(cx);
         cx.notify();
@@ -1287,12 +1287,12 @@ impl CanDataApp {
     ///
     /// Helper method to print BLF parsing errors in a formatted way.
     fn log_blf_errors(errors: &[blf::BlfParseError], object_count: usize) {
-        eprintln!("\n⚠️  BLF 解析过程中发现 {} 个错误:", errors.len());
+        eprintln!("\n⚠️  {} errors found while parsing the BLF file:", errors.len());
         for (i, error) in errors.iter().enumerate() {
-            eprintln!("  错误 {}: {}", i + 1, error);
+            eprintln!("  Error {}: {}", i + 1, error);
         }
         eprintln!(
-            "  ✅ 但仍成功解析了 {} 个对象，这些对象将正常显示\n",
+            "  ✅ {} objects were still parsed and will be shown normally\n",
             object_count
         );
     }
@@ -1311,7 +1311,7 @@ impl CanDataApp {
     ///
     /// Helper method to print library manager statistics after loading.
     fn display_library_stats(library_manager: &crate::library::LibraryManager) -> (usize, usize, usize) {
-        // 统计信息
+        // Statistics
         let total_versions: usize = library_manager
             .libraries()
             .iter()
@@ -1324,15 +1324,15 @@ impl CanDataApp {
             .map(|ver| ver.channel_databases.len())
             .sum();
 
-        eprintln!("  ✅ 加载完成:");
-        eprintln!("     - {} 个库", library_manager.libraries().len());
-        eprintln!("     - {} 个版本", total_versions);
-        eprintln!("     - {} 个通道", total_channels);
+        eprintln!("  ✅ Loaded:");
+        eprintln!("     - {} libraries", library_manager.libraries().len());
+        eprintln!("     - {} versions", total_versions);
+        eprintln!("     - {} channels", total_channels);
 
-        // 显示库列表
+        // Show the library list
         for library in library_manager.libraries() {
             eprintln!(
-                "     📦 {}: {} 个版本",
+                "     📦 {}: {} versions",
                 library.name,
                 library.versions.len()
             );
@@ -1631,7 +1631,7 @@ impl CanDataApp {
             self.new_channel_db_path.trim().to_string(),
         );
 
-        // 🔧 自动复制文件到 libraries/{library}/{version}/{channel}/
+        // 🔧 Copy the file to libraries/{library}/{version}/{channel}/
         let library_name = {
             let library = match self.library_manager.find_library(&library_id) {
                 Some(lib) => lib,
@@ -1732,10 +1732,10 @@ impl CanDataApp {
                     // Reset type to CAN
                     self.new_channel_type = crate::models::ChannelType::CAN;
 
-                    // 🔄 同步到 app_config
+                    // 🔄 Sync to app_config
                     self.app_config.libraries = self.library_manager.libraries().to_vec();
 
-                    // 💾 自动保存配置
+                    // 💾 Auto-save the configuration
                     self.save_config(cx);
                     eprintln!("✅ Configuration saved automatically");
 
@@ -1746,7 +1746,7 @@ impl CanDataApp {
                         self.apply_version_to_mappings(&library_id.clone(), &version_name.clone(), cx);
                     }
 
-                    // 刷新 plot 数据（即使是非激活版本路径，也是 no-op 无害）
+                    // Refresh plot data (a harmless no-op for a non-active version)
                     crate::ui::views::chart_view::extract_and_update_series_data(self);
 
                     cx.notify();
@@ -1918,7 +1918,7 @@ impl CanDataApp {
                 Ok(())
             };
 
-            // 若删除的是激活版本的通道，刷新 plot 数据
+            // If a channel of the active version was deleted, refresh plot data
             if is_active_version {
                 crate::ui::views::chart_view::extract_and_update_series_data(self);
             }

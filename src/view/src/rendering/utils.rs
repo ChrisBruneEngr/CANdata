@@ -21,9 +21,9 @@
 /// ```
 #[allow(dead_code)]
 pub fn format_timestamp(timestamp: u64, _start_time: Option<chrono::NaiveDateTime>) -> String {
-    // `timestamp` 是 MergedView::from_segments 写入的绝对 Unix 纳秒
-    // (abs_ns = file_start_ns + msg.relative_ns),已经包含文件里记录的
-    // measurement_start_time,无需再加 start_time。
+    // `timestamp` is the absolute Unix nanoseconds written by MergedView::from_segments
+    // (abs_ns = file_start_ns + msg.relative_ns). It already includes the file's
+    // measurement_start_time, so there's no need to add start_time.
     use chrono::{TimeZone, Utc};
     let dt = Utc.timestamp_nanos(timestamp as i64);
     dt.naive_utc().format("%Y-%m-%d %H:%M:%S%.6f").to_string()

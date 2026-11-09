@@ -107,7 +107,7 @@ pub fn delete_channel_from_libraries(
     Ok(())
 }
 
-/// 清理文件名，移除不安全的字符
+/// Sanitize a file name by removing unsafe characters.
 pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
         .trim()

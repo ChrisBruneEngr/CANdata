@@ -10,12 +10,12 @@ use crate::ui::theme::spacing;
 use gpui::{prelude::*, *};
 use gpui_component::scroll::ScrollableElement;
 
-/// Files popover 列表可视化行数上限。少于等于此行数时按内容高度展示，
-/// 不出现滚动条；超过时列表固定高度并出现滚动条。
+/// Maximum number of visible rows in the Files popover list. Up to this many rows
+/// the list sizes to its content with no scrollbar; beyond it the list has a fixed height and scrolls.
 const MAX_VISIBLE_ROWS: usize = 8;
 
-/// 单行估算高度（p(XS)=4 上下 + text_xs ~16 + 行间 gap 4 ≈ 28）。
-/// 用于计算滚动列表的固定高度。
+/// Estimated height of one row (p(XS)=4 top and bottom + text_xs ~16 + row gap 4 ≈ 28).
+/// Used to compute the fixed height of the scrolling list.
 const ROW_HEIGHT: f32 = 28.;
 
 /// Format a count with thousands separators.
@@ -50,20 +50,20 @@ pub fn format_bytes(n: u64) -> String {
 
 /// Render the left-side file segment.
 ///
-/// 五种状态(按 `app.files.len()` × `app.blf_parse_errors.is_empty()`):
-///   - 0 文件        → `📂 No file loaded — File > Open BLF...`(纯展示)
-///   - 1 文件 无错   → `📂 <file_name>`(纯展示)
-///   - 1 文件 有错   → `📂 <file_name> ⚠️`(可点击,打开 files popover)
-///   - ≥2 文件 无错  → `📂 N files`(可点击,打开 files popover)
-///   - ≥2 文件 有错  → `📂 N files ⚠️`(可点击,打开 files popover)
+/// Five states (by `app.files.len()` × `app.blf_parse_errors.is_empty()`):
+///   - 0 files            → `📂 No file loaded — File > Open BLF...` (display only)
+///   - 1 file, no errors  → `📂 <file_name>` (display only)
+///   - 1 file, errors     → `📂 <file_name> ⚠️` (clickable, opens the files popover)
+///   - ≥2 files, no errors → `📂 N files` (clickable, opens the files popover)
+///   - ≥2 files, errors   → `📂 N files ⚠️` (clickable, opens the files popover)
 ///
-/// ⚠️ 放在 label(文件名 / N files)后面,与文件名/计数整体一起点击 ——
-/// files popover 内已显示每文件的 ❌/✅ 状态图标和错误列表,左侧 ⚠️
-/// 仅作"有文件解析失败"的总提示。
+/// ⚠️ goes after the label (file name / N files) and is clicked together with it.
+/// The files popover already shows each file's ❌/✅ icon and error list, so the ⚠️ here
+/// is only an overall "some file failed to parse" hint.
 fn render_file_segment(app: &CanDataApp, view: Entity<CanDataApp>) -> impl IntoElement {
     let files_count = app.files.len();
-    // 多文件加载不会填充 `blf_parse_errors`(那是单文件加载路径专用),
-    // 所以这里同时检查任意 segment 是否有错误。
+    // Multi-file loads don't fill `blf_parse_errors` (that's for the single-file path only),
+    // so also check whether any segment has errors.
     let has_errors =
         !app.blf_parse_errors.is_empty() || app.files.iter().any(|f| !f.errors.is_empty());
     let clickable = files_count >= 1 && (files_count >= 2 || has_errors);
@@ -159,9 +159,9 @@ fn render_lib_badge_segment(app: &CanDataApp) -> impl IntoElement {
 /// Returns `Some(element)` when `app.status_msg` is non-empty, otherwise `None`
 /// so the caller can skip the surrounding separators via `.when_some()`.
 ///
-/// 解析错误入口已迁移到左侧 `render_file_segment`(那里会显示 ⚠️ 并打开
-/// files popover,后者已展示每文件的错误详情)。本段不再追加错误入口,
-/// 函数签名也不需要 view。
+/// The parse-error entry point moved to `render_file_segment` on the left (it shows ⚠️ and opens
+/// the files popover, which lists each file's errors). This segment no longer adds an error entry,
+/// so the function doesn't need the view.
 fn render_status_msg_segment(app: &CanDataApp) -> Option<impl IntoElement> {
     if app.status_msg.is_empty() {
         return None;
@@ -277,9 +277,9 @@ fn render_blf_errors_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Opti
 
 /// Render the ❌ Cancel button segment (right side, only during loading).
 ///
-/// 仅在 `loading_progress` 显示“正在加载且未取消”时返回 `Some`。点击设置
-/// `is_cancelled = true`,使后续 `apply_blf_result_append_one` 早退,从而
-/// 中止未完成文件的追加。已完成的 segment 保留在 `files` 列表中。
+/// Returns `Some` only while `loading_progress` shows a load in progress that isn't cancelled. Clicking sets
+/// `is_cancelled = true`, so later `apply_blf_result_append_one` calls return early and
+/// unfinished files aren't appended. Segments that already finished stay in `files`.
 fn render_cancel_button_segment(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<impl IntoElement> {
     let is_loading = app
         .loading_progress
@@ -318,29 +318,29 @@ fn render_cancel_button_segment(app: &CanDataApp, view: Entity<CanDataApp>) -> O
 
 /// Render the 📁 Files (N) button segment (right side).
 ///
-/// **已废弃**:多文件入口已迁移到左侧 `render_file_segment`。本函数保留
-/// 但永远返回 `None`,便于未来需要时快速恢复右侧入口。调用方
-/// (`render_status_bar` 中的 `.when_some(render_files_button_segment(...))`)
-/// 会自动跳过 None 分支。
+/// **Deprecated**: the multi-file entry point moved to `render_file_segment` on the left. This function
+/// is kept but always returns `None`, so the right-side entry can be restored quickly if needed. The caller
+/// (`.when_some(render_files_button_segment(...))` in `render_status_bar`)
+/// skips the None case automatically.
 fn render_files_button_segment(_app: &CanDataApp, _view: Entity<CanDataApp>) -> Option<Div> {
     None
 }
 
 /// Render the file-management popover as a sibling of the status bar.
 ///
-/// 镜像 `render_blf_errors_popover` 的定位方式：全屏绝对定位 + 半透明遮罩
-/// 处理外部点击关闭；实际内容容器锚定到右下角，避免被 status_msg 段的
-/// `truncate()` 裁切。仅当 `show_files_popover && !files.is_empty()` 时
-/// 返回 `Some`；当文件在 popover 打开期间被全部移除时，popover 自动消失。
+/// Positioned like `render_blf_errors_popover`: a full-window absolute layer with a translucent backdrop
+/// handles outside clicks; the content is anchored to the bottom-right so the status_msg segment's
+/// `truncate()` doesn't clip it. Returns `Some` only when `show_files_popover && !files.is_empty()`;
+/// if every file is removed while the popover is open, it closes automatically.
 fn render_files_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<impl IntoElement> {
     if !app.show_files_popover || app.files.is_empty() {
         return None;
     }
     let files_count = app.files.len();
-    // 估算每行需要的宽度，取最大值作为 popover 宽度，避免少文件时弹框过宽。
-    // 估算：图标(16) + 文件名(字符数 * 6.5) + 信息串(~110) + ✕ 按钮(20) +
-    //       gaps/padding(~40)。text-xs 字体 ≈ 11px，每个字符约 6.5px。
-    // 限制在 [280, 460] 之间，太窄行内会被 truncate，太宽少文件时浪费空间。
+    // Estimate the width each row needs and use the largest as the popover width, so it isn't too wide for few files.
+    // Estimate: icon (16) + file name (chars * 6.5) + info text (~110) + ✕ button (20) +
+    //       gaps/padding (~40). The text-xs font is ≈ 11px, about 6.5px per character.
+    // Clamped to [280, 460]: narrower truncates rows, wider wastes space with few files.
     let estimated_max_row_width = app
         .files
         .iter()
@@ -358,9 +358,9 @@ fn render_files_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<im
         })
         .fold(0f32, f32::max);
     let popover_width = estimated_max_row_width.clamp(280., 460.);
-    // 预先把每行渲染成独立的 element，避免 GPUI children() 对 'static 生命周期
-    // 的要求与局部 rows borrow 冲突（E0597）。每行的 on_mouse_down 闭包通过
-    // move 捕获自己的 file_id + view clone，互不借用 rows。
+    // Render each row as its own element up front, so GPUI children()'s 'static lifetime
+    // requirement doesn't conflict with borrowing the local rows (E0597). Each row's on_mouse_down closure
+    // moves in its own file_id + view clone, so nothing borrows rows.
     let row_elements: Vec<Div> = app
         .files
         .iter()
@@ -370,15 +370,15 @@ fn render_files_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<im
             let msg_count = seg.object_count;
             let bytes_total = seg.bytes_total;
             let has_errors = !seg.errors.is_empty();
-            // 对相同错误去重（BLF 解析器可能对每个损坏 chunk 重复报相同错误）
-            // 顺序保留用 Vec 去重，避免引入 HashSet 依赖
+            // De-duplicate identical errors (the BLF parser may report the same error for each corrupted chunk)
+            // Order-preserving de-dup with a Vec, to avoid needing a HashSet
             let mut errors_list: Vec<String> = Vec::new();
             for e in seg.errors.iter() {
                 if !errors_list.iter().any(|existing| existing == e) {
                     errors_list.push(e.clone());
                 }
             }
-            // 单条错误截断到 200 字符，超出显示 "..."
+            // Truncate each error to 200 characters, with "..." when longer
             let errors_list: Vec<String> = errors_list
                 .iter()
                 .map(|e| {
@@ -488,7 +488,7 @@ fn render_files_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<im
             .items_end()
             .justify_end()
             .p(spacing::LG)
-            // 点击遮罩外部关闭 popover
+            // Clicking outside the popover closes it
             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 view_for_click_outside.update(cx, |app, cx| {
                     app.show_files_popover = false;
@@ -508,11 +508,11 @@ fn render_files_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<im
                     .flex_col()
                     .p(spacing::SM)
                     .gap(spacing::XS)
-                    // 阻止 popover 内部点击冒泡到遮罩的关闭 handler
+                    // Stop clicks inside the popover from reaching the backdrop's close handler
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    // 标题栏：文件数 + ✕ 关闭
+                    // Title bar: file count + ✕ close
                     .child(
                         div()
                             .flex()
@@ -540,13 +540,13 @@ fn render_files_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<im
                                     }),
                             ),
                     )
-                    // 文件列表（每行：状态图标 + 名称 + msgs + size + ✕ 移除）
-                    // 文件少时按内容高度展示（不出现滚动条，popover 整体紧凑）；
-                    // 超过 MAX_VISIBLE_ROWS 才固定高度并出现滚动条，保证底部按钮
-                    // 始终可见。关键：滚动容器必须给固定 h —— Scrollable 包装器只
-                    // 继承 style.size，flex_1/min_h_0/max_h 都不属于 size，无法让
-                    // 包装器获得 flex 约束，导致按内容高度撑开、滚动条不触发、
-                    // 底部按钮被挤出可视区。size_full + pr 让滚动条与内容有间距。
+                    // File list (each row: status icon + name + msgs + size + ✕ remove).
+                    // With few files it sizes to its content (no scrollbar, compact popover);
+                    // beyond MAX_VISIBLE_ROWS it gets a fixed height and a scrollbar, so the bottom buttons
+                    // stay visible. Key point: the scroll container needs a fixed h. The Scrollable wrapper only
+                    // inherits style.size, and flex_1/min_h_0/max_h aren't part of size, so they can't give
+                    // the wrapper flex constraints; it would grow to its content, never scroll,
+                    // and push the bottom buttons out of view. size_full + pr spaces the scrollbar from the content.
                     .child(
                         if files_count > MAX_VISIBLE_ROWS {
                             div()
@@ -574,7 +574,7 @@ fn render_files_popover(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<im
                                 .into_any_element()
                         },
                     )
-                    // 底部：Remove All（左）+ Done（右）
+                    // Bottom: Remove All (left) + Done (right)
                     .child(
                         div()
                             .mt(px(2.))

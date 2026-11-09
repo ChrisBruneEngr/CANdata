@@ -61,10 +61,10 @@ pub struct ChannelMapping {
     pub path: String,
     #[serde(default)]
     pub description: String,
-    /// 关联的信号库ID
+    /// Linked signal library ID
     #[serde(default)]
     pub library_id: Option<String>,
-    /// 激活的版本名称
+    /// Active version name
     #[serde(default)]
     pub version_name: Option<String>,
 }
@@ -87,16 +87,16 @@ pub enum SignalListMode {
 /// Application configuration
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AppConfig {
-    /// 信号库列表
+    /// Signal libraries
     #[serde(default)]
     pub libraries: Vec<SignalLibrary>,
-    /// 通道映射列表
+    /// Channel mappings
     #[serde(default)]
     pub mappings: Vec<ChannelMapping>,
-    /// 当前激活的库ID
+    /// Active library ID
     #[serde(default)]
     pub active_library_id: Option<String>,
-    /// 当前激活的版本名称
+    /// Active version name
     #[serde(default)]
     pub active_version_name: Option<String>,
     /// Layout of the Plot view's signal list

@@ -1,37 +1,37 @@
 use blf::{read_blf_from_file, LogObject};
 
 fn main() {
-    println!("🧪 测试损坏的BLF文件解析\n");
-    println!("正在读取 test_corrupted.blf...\n");
+    println!("🧪 Testing parsing of a corrupted BLF file\n");
+    println!("Reading test_corrupted.blf...\n");
 
     match read_blf_from_file("test_corrupted.blf") {
         Ok(result) => {
-            println!("✅ 文件读取成功!\n");
-            println!("=== 文件统计 ===");
-            println!("应用版本: {}.{}.{}.{}",
+            println!("✅ File read successfully!\n");
+            println!("=== File statistics ===");
+            println!("Application version: {}.{}.{}.{}",
                 result.file_stats.application_major,
                 result.file_stats.application_minor,
                 result.file_stats.application_build,
                 result.file_stats.application_id
             );
-            println!("文件大小: {} 字节", result.file_stats.file_size);
-            println!("测量开始时间: {:?}\n", result.file_stats.measurement_start_time);
+            println!("File size: {} bytes", result.file_stats.file_size);
+            println!("Measurement start time: {:?}\n", result.file_stats.measurement_start_time);
 
-            println!("=== 解析结果 ===");
-            println!("成功解析的对象数量: {}", result.objects.len());
-            println!("遇到的错误数量: {}\n", result.errors.len());
+            println!("=== Parse results ===");
+            println!("Objects parsed: {}", result.objects.len());
+            println!("Errors encountered: {}\n", result.errors.len());
 
             if result.errors.len() > 0 {
-                println!("⚠️  发现的错误:");
+                println!("⚠️  Errors found:");
                 for (i, error) in result.errors.iter().enumerate() {
                     println!("  {}. {}", i + 1, error);
                 }
                 println!();
             }
 
-            // 显示成功解析的消息
+            // Show the messages that parsed successfully
             if !result.objects.is_empty() {
-                println!("=== 成功解析的消息（前10条）===");
+                println!("=== Parsed messages (first 10) ===");
                 for (i, obj) in result.objects.iter().take(10).enumerate() {
                     match obj {
                         LogObject::CanMessage(msg) => {
@@ -51,38 +51,38 @@ fn main() {
                             );
                         }
                         _ => {
-                            println!("  [{:02}] 其他类型对象: {:?}", i + 1, obj);
+                            println!("  [{:02}] Other object type: {:?}", i + 1, obj);
                         }
                     }
                 }
                 if result.objects.len() > 10 {
-                    println!("  ... 还有 {} 条消息", result.objects.len() - 10);
+                    println!("  ... and {} more messages", result.objects.len() - 10);
                 }
             }
 
-            println!("\n=== 测试结果 ===");
+            println!("\n=== Test result ===");
             if result.errors.len() > 0 && result.objects.len() > 0 {
-                println!("✅ 部分解析成功!");
-                println!("   - {} 个对象成功解析并可以显示在logs和折线图中", result.objects.len());
-                println!("   - {} 个错误信息显示在状态栏", result.errors.len());
-                println!("\n📝 这验证了我们的错误处理功能：");
-                println!("   ✓ 正确的结果出现在logs和折线图上");
-                println!("   ✓ 错误信息在右下角状态上显示");
+                println!("✅ Partial parse succeeded!");
+                println!("   - {} objects parsed and can be shown in the Log and Plot views", result.objects.len());
+                println!("   - {} errors shown in the status bar", result.errors.len());
+                println!("\n📝 This verifies the error handling:");
+                println!("   ✓ Valid results appear in the Log and Plot views");
+                println!("   ✓ Errors are shown in the status bar");
             } else if result.errors.is_empty() {
-                println!("✅ 完全解析成功，没有错误");
+                println!("✅ Fully parsed with no errors");
             } else {
-                println!("❌ 解析完全失败，没有成功解析任何对象");
+                println!("❌ Parsing failed completely; no objects were parsed");
             }
         }
         Err(e) => {
-            println!("❌ 文件读取失败: {:?}\n", e);
-            println!("这可能是因为:");
-            println!("  1. 文件不存在");
-            println!("  2. 文件头部完全损坏");
-            println!("  3. 文件格式完全错误");
+            println!("❌ Failed to read file: {:?}\n", e);
+            println!("Possible causes:");
+            println!("  1. The file does not exist");
+            println!("  2. The file header is completely corrupted");
+            println!("  3. The file is not a BLF file");
         }
     }
 
-    println!("\n按任意键退出...");
+    println!("\nPress any key to exit...");
     let _ = std::io::stdin().read_line(&mut String::new());
 }
