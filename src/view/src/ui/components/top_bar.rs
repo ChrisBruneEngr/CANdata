@@ -93,7 +93,7 @@ pub fn render_top_bar(
             });
         });
 
-    // Help button (right side). Toggles the help dropdown (GitHub / Feedback).
+    // Help button (right side). Toggles the help dropdown (About / GitHub).
     // Styling mirrors the File menu button so the top bar reads consistently.
     let show_help_menu = app.show_help_menu;
     let view_for_help = view.clone();

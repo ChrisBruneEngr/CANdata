@@ -2019,10 +2019,9 @@ impl Render for CanDataApp {
                 }
             })
             .child({
-                // Help dropdown menu — About + GitHub + Feedback
+                // Help dropdown menu — About + GitHub
                 if self.show_help_menu {
                     let view_for_github = view.clone();
-                    let view_for_feedback = view.clone();
                     let view_for_about = view.clone();
                     let version = env!("CANDATA_VERSION");
                     div()
@@ -2059,7 +2058,7 @@ impl Render for CanDataApp {
                                             let _ = rfd::AsyncMessageDialog::new()
                                                 .set_title("About CANdata")
                                                 .set_description(&format!(
-                                                    "CANdata v{}\n\nOpen-source cross-platform CAN/LIN bus data analysis tool\n\nhttps://github.com/ChrisBruneEngr/CANdata",
+                                                    "CANdata v{}\n\nOpen-source CAN/LIN bus data analysis tool for Windows\n\nhttps://github.com/ChrisBruneEngr/CANdata\n\nCopyright (c) 2026 Chris Brune. Released under the MIT License.\nBased on can-viewer (https://github.com/cantool/can-viewer).",
                                                     v
                                                 ))
                                                 .set_buttons(rfd::MessageButtons::Ok)
@@ -2102,25 +2101,6 @@ impl Render for CanDataApp {
                                     });
                                 })
                                 .child("View on GitHub"),
-                        )
-                        // Send Feedback
-                        .child(
-                            div()
-                                .px_3()
-                                .py_1()
-                                .text_xs()
-                                .text_color(rgb(0xcdd6f4))
-                                .hover(|style| style.bg(rgb(0x45475a)))
-                                .cursor_pointer()
-                                .on_mouse_down(gpui::MouseButton::Left, move |_event, _window, cx| {
-                                    cx.stop_propagation();
-                                    cx.open_url("mailto:admin@ucan.me?subject=CANdata%20Feedback");
-                                    view_for_feedback.update(cx, |app, cx| {
-                                        app.show_help_menu = false;
-                                        cx.notify();
-                                    });
-                                })
-                                .child("Send Feedback"),
                         )
                 } else {
                     div().hidden()

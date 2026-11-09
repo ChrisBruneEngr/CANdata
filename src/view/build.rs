@@ -43,7 +43,8 @@ fn emit_version() {
                 None
             }
         })
-        .map(|s| s.trim().to_string())
+        // Tags look like "v0.2.6"; the UI adds its own "v", so drop the tag's.
+        .map(|s| s.trim().trim_start_matches('v').to_string())
         .unwrap_or_else(|| {
             // Fall back to Cargo package version when git is unavailable or no tags.
             env!("CARGO_PKG_VERSION").to_string()
