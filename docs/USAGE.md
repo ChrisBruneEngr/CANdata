@@ -203,11 +203,15 @@ Switch via the **Library** button in the top bar. Three-column layout: libraries
 1. In the left column, click **+ New Library**.
 2. Type a name and press **Enter** (or click ✓). **Escape** cancels.
 
+The new library is selected straight away, and the **Add Version** box opens with the cursor in it, so you can type its first version name next.
+
 ### Add a version
 
 1. Select a library on the left.
 2. Click **+ Add Version** in the middle column.
 3. Type a version name (e.g., `v1.0`) and press **Enter**.
+
+The new version is selected straight away, and the **Add Channel** form opens with the cursor in the Channel ID box, so you can add its first channel next.
 
 ### Add a channel (DBC/LDF file)
 

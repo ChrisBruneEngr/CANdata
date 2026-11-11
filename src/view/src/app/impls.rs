@@ -135,6 +135,7 @@ impl CanDataApp {
             expanded_channels: std::collections::HashSet::new(),
             expanded_messages: std::collections::HashSet::new(),
             pending_add_channel_focus: None,
+            pending_library_step: None,
             // Signal sets
             signal_set_store: crate::library::signal_sets::load_signal_set_store(None),
             active_signal_set: None,
@@ -602,12 +603,18 @@ impl CanDataApp {
         ) {
             Ok(library) => {
                 eprintln!("✅ Library created successfully: {}", library.name);
+                let library_id = library.id.clone();
 
                 // Sync to app_config for persistence
                 self.app_config.libraries = self.library_manager.libraries().to_vec();
 
                 // Save config to file
                 self.save_config(cx);
+
+                // A new library has no versions yet, so select it and go straight
+                // to naming its first version.
+                self.select_library(library_id, cx);
+                self.pending_library_step = Some(crate::app::PendingLibraryStep::AddVersion);
 
                 self.status_msg = format!("Library '{}' created", self.new_library_name).into();
                 self.new_library_name.clear();
@@ -620,6 +627,18 @@ impl CanDataApp {
                 cx.notify();
             }
         }
+    }
+
+    /// Select a library in the Library view, clearing anything tied to the previous one.
+    pub fn select_library(&mut self, library_id: String, cx: &mut Context<Self>) {
+        self.selected_library_id = Some(library_id);
+        self.selected_version_id = None;
+        // Cancel any in-progress version rename or new version from the old library
+        self.renaming_version_name = None;
+        self.rename_version_input = None;
+        self.show_version_input = false;
+        self.version_name_input = None;
+        self.hide_add_channel_input(cx);
     }
 
     /// Delete a library
@@ -750,11 +769,19 @@ impl CanDataApp {
             self.save_config(cx);
 
             self.status_msg = format!(
-                "Version '{}' created successfully. Use 'Add Database File' to attach a database.",
+                "Version '{}' created. Add its first channel below.",
                 version_name
             )
             .into();
             self.new_version_name.clear();
+
+            // A new version has no channels yet, so select it and go straight to
+            // adding its first channel.
+            self.selected_version_id = Some(version_name.clone());
+            self.renaming_version_name = None;
+            self.rename_version_input = None;
+            self.hide_add_channel_input(cx);
+            self.pending_library_step = Some(crate::app::PendingLibraryStep::AddChannel);
             cx.notify();
         } else {
             eprintln!("❌ Error: Library not found");

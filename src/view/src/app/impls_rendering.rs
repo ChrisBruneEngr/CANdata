@@ -1551,6 +1551,25 @@ impl Render for CanDataApp {
             }
         }
 
+        // A library or version was just created: open the next step, ready to type in.
+        match self.pending_library_step.take() {
+            Some(crate::app::PendingLibraryStep::AddVersion) => {
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx).placeholder("Enter version name (e.g., v1.0)...")
+                });
+                input.update(cx, |state, cx| state.focus(window, cx));
+                self.version_name_input = Some(input);
+                self.show_version_input = true;
+            }
+            Some(crate::app::PendingLibraryStep::AddChannel) => {
+                crate::ui::views::library_management::open_add_channel_form(self, window, cx);
+                if let Some(input) = &self.channel_id_input {
+                    input.update(cx, |state, cx| state.focus(window, cx));
+                }
+            }
+            None => {}
+        }
+
         // Initialize signal search input if needed
         if self.signal_search_input.is_none() {
             let input = cx

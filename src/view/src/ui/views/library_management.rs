@@ -341,14 +341,10 @@ fn render_library_item(
                     move |this, _event, _window, cx| {
                         cx.stop_propagation();
                         eprintln!("🖱️ Selected library: {}", library_id);
-                        this.selected_library_id = Some(library_id.clone());
-                        // Reset selected version when library changes
-                        this.selected_version_id = None;
-                        // Cancel any in-progress version rename when switching libraries
-                        this.renaming_version_name = None;
-                        this.rename_version_input = None;
-                        // Reset add channel input when switching libraries
-                        this.hide_add_channel_input(cx);
+                        // Clicking the library that's already selected keeps its state.
+                        if this.selected_library_id.as_ref() != Some(&library_id) {
+                            this.select_library(library_id.clone(), cx);
+                        }
                         cx.notify();
                     }
                 }),
@@ -1308,14 +1304,7 @@ fn render_add_channel_button(cx: &mut Context<crate::CanDataApp>) -> impl IntoEl
             gpui::MouseButton::Left,
             cx.listener(|this, _event, window, cx| {
                 eprintln!("🖱️ Add Channel button clicked");
-
-                // Clear previous values
-                this.new_channel_db_path.clear();
-                this.new_channel_id.clear();
-                this.new_channel_name.clear();
-
-                this.editing_channel_index = None;
-                open_channel_form(this, "", "", window, cx);
+                open_add_channel_form(this, window, cx);
             }),
         )
         .child(
@@ -1327,6 +1316,19 @@ fn render_add_channel_button(cx: &mut Context<crate::CanDataApp>) -> impl IntoEl
                     .child("+ Add Channel"),
             ),
         )
+}
+
+/// Show an empty channel form for adding a new channel to the selected version.
+pub fn open_add_channel_form(
+    this: &mut crate::CanDataApp,
+    window: &mut Window,
+    cx: &mut Context<crate::CanDataApp>,
+) {
+    this.new_channel_db_path.clear();
+    this.new_channel_id.clear();
+    this.new_channel_name.clear();
+    this.editing_channel_index = None;
+    open_channel_form(this, "", "", window, cx);
 }
 
 /// Create the channel form's inputs and show it. Add Channel passes empty values;
