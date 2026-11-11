@@ -31,6 +31,9 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanDataApp, view: Entity<
     app.plot_lanes.sync_with_selection(&app.selected_signals);
     settle_auto_y_ranges(app);
     refresh_y_range_inputs(app, window, cx);
+    if app.plot_focus_handle.is_none() {
+        app.plot_focus_handle = Some(cx.focus_handle());
+    }
 
     // Check if plot data size is reasonable
     if series_data.len() > 100 {
@@ -91,7 +94,7 @@ fn render_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoEl
             div()
                 .text_xs()
                 .text_color(rgb(0x71717a))
-                .child("Click = set cursor · drag or wheel = zoom · right-drag = pan · ⌘/Ctrl + wheel = scroll lanes")
+                .child("Click = set cursor · ←/→ = move cursor (Shift = next sample) · drag or wheel = zoom · right-drag = pan · Ctrl + wheel = scroll lanes")
         )
         .when_some(app.plot_cursor_time, |this, time| {
             this.child(
@@ -487,9 +490,46 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
     // positioned absolutely inside it so it stays aligned with the lanes.
     v_flex()
         .id("plot-scroll-container")
+        .when_some(app.plot_focus_handle.as_ref(), |this, handle| this.track_focus(handle))
         .flex_1()
         .min_h_0()  // allow the flex child to shrink so its content can scroll
         .relative()
+        // Any click in the charts gives them the keyboard, even one a lane header
+        // stops, and takes it away from a text box.
+        .capture_any_mouse_down(cx.listener(|this: &mut CanDataApp, _: &MouseDownEvent, window, cx| {
+            if let Some(handle) = this.plot_focus_handle.clone() {
+                window.focus(&handle, cx);
+            }
+        }))
+        .on_key_down(cx.listener(|this: &mut CanDataApp, event: &KeyDownEvent, window, cx| {
+            let direction = match event.keystroke.key.as_str() {
+                "left" => -1.0,
+                "right" => 1.0,
+                _ => return,
+            };
+            let modifiers = &event.keystroke.modifiers;
+            if modifiers.control || modifiers.alt || modifiers.platform {
+                return;
+            }
+            // Held keys repeat; time the hold from the first press.
+            let now = std::time::Instant::now();
+            let hold_start = match this.plot_key_hold_start {
+                Some(start) if event.is_held => start,
+                _ => {
+                    this.plot_key_hold_start = Some(now);
+                    now
+                }
+            };
+            let held_secs = now.duration_since(hold_start).as_secs_f64();
+            move_plot_cursor(this, direction, modifiers.shift, held_secs, window);
+            cx.stop_propagation();
+            cx.notify();
+        }))
+        .on_key_up(cx.listener(|this: &mut CanDataApp, event: &KeyUpEvent, _, _| {
+            if matches!(event.keystroke.key.as_str(), "left" | "right") {
+                this.plot_key_hold_start = None;
+            }
+        }))
         .p_4()
         .gap_2()
         .overflow_y_scroll()
@@ -823,15 +863,129 @@ fn pan_plot(app: &mut CanDataApp, mouse_x: Pixels, window: &Window) {
 
     // A window with no points at all would reset the zoom, so hold position over gaps
     // in the data until the drag reaches more of it.
-    let has_data = app.plot_full_data.iter().any(|series| {
-        let first = series.points.partition_point(|p| p.time < new_start);
-        series.points.get(first).is_some_and(|p| p.time <= new_end)
-    });
-    if has_data {
+    if has_data_between(app, new_start, new_end) {
         app.plot_zoom_start = Some(new_start);
         app.plot_zoom_end = Some(new_end);
         apply_zoom_to_full_data(app);
     }
+}
+
+/// Whether any plotted signal has a sample from `start` to `end`.
+fn has_data_between(app: &CanDataApp, start: f64, end: f64) -> bool {
+    app.plot_full_data.iter().any(|series| {
+        let first = series.points.partition_point(|p| p.time < start);
+        series.points.get(first).is_some_and(|p| p.time <= end)
+    })
+}
+
+/// How far one key event moves the cursor once the arrow key has been held for
+/// `held_secs`: in pixels, or in samples with Shift. A tap moves 1. Holding starts
+/// at 1 per repeat and speeds up, about doubling every 0.4 s, up to `max`.
+fn cursor_step(held_secs: f64, max: f64) -> f64 {
+    // Keys only start repeating after about half a second.
+    let accelerating_for = (held_secs - 0.5).max(0.0);
+    2f64.powf(accelerating_for * 2.5).min(max).max(1.0)
+}
+
+/// The time `steps` samples from `cursor` in `direction` (-1 or 1), counting the
+/// samples of all `series` together. Stops at the last sample if there are fewer.
+fn step_through_samples(series: &[&Series], cursor: f64, direction: f64, steps: usize) -> Option<f64> {
+    let mut time = cursor;
+    let mut moved = false;
+    for _ in 0..steps {
+        let next = if direction > 0.0 {
+            series
+                .iter()
+                .filter_map(|s| s.points.get(s.points.partition_point(|p| p.time <= time)))
+                .map(|p| p.time)
+                .reduce(f64::min)
+        } else {
+            series
+                .iter()
+                .filter_map(|s| {
+                    let index = s.points.partition_point(|p| p.time < time);
+                    index.checked_sub(1).map(|i| s.points[i].time)
+                })
+                .reduce(f64::max)
+        };
+        match next {
+            Some(next) => {
+                time = next;
+                moved = true;
+            }
+            None => break,
+        }
+    }
+    moved.then_some(time)
+}
+
+/// Most pixels the cursor moves per key repeat, as a share of the plot width.
+const MAX_CURSOR_STEP_SHARE: f64 = 1.0 / 40.0;
+/// Most samples the cursor moves per key repeat with Shift held.
+const MAX_CURSOR_SAMPLE_STEP: f64 = 20.0;
+
+/// Move the cursor for an arrow key: by pixels at the current zoom, or with
+/// `by_sample` to the next sample of the selected lane's signals (all plotted
+/// signals if it has none). While zoomed, the view scrolls to keep the cursor in it.
+fn move_plot_cursor(app: &mut CanDataApp, direction: f64, by_sample: bool, held_secs: f64, window: &Window) {
+    let Some((view_start, view_end)) = visible_time_range(app) else {
+        return; // Nothing plotted yet
+    };
+    let (min, max) = full_time_range(app).unwrap_or((view_start, view_end));
+    let width = f32::from(window.bounds().size.width - DRAW_ORIGIN_X - DRAW_RIGHT_MARGIN) as f64;
+    if width <= 0.0 || view_end <= view_start {
+        return;
+    }
+
+    let Some(cursor) = app.plot_cursor_time else {
+        // No cursor yet: the first press puts it in the middle of the view.
+        app.plot_cursor_time = Some((view_start + view_end) / 2.0);
+        update_cursor_values(app);
+        return;
+    };
+
+    let new_time = if by_sample {
+        let lane_signals = app.plot_lanes.lanes.get(app.plot_lanes.selected).map(|lane| &lane.signals);
+        let mut series: Vec<&Series> = app
+            .plot_full_data
+            .iter()
+            .filter(|s| lane_signals.is_some_and(|signals| signals.contains(&s.name)))
+            .collect();
+        if series.iter().all(|s| s.points.is_empty()) {
+            series = app.plot_full_data.iter().collect();
+        }
+        let steps = cursor_step(held_secs, MAX_CURSOR_SAMPLE_STEP).round() as usize;
+        match step_through_samples(&series, cursor, direction, steps) {
+            Some(time) => time,
+            None => return, // No sample further that way
+        }
+    } else {
+        let pixels = cursor_step(held_secs, width * MAX_CURSOR_STEP_SHARE);
+        cursor + direction * pixels * (view_end - view_start) / width
+    };
+    let new_time = new_time.clamp(min, max);
+    app.plot_cursor_time = Some(new_time);
+
+    // Scroll a zoomed view just far enough to keep the cursor at its edge.
+    if app.plot_zoom_start.is_some() && app.plot_zoom_end.is_some() {
+        let shift = if new_time < view_start {
+            new_time - view_start
+        } else if new_time > view_end {
+            new_time - view_end
+        } else {
+            0.0
+        };
+        if shift != 0.0 {
+            let (new_start, new_end) = pan_time_range(view_start, view_end, shift, min, max);
+            if has_data_between(app, new_start, new_end) {
+                app.plot_zoom_start = Some(new_start);
+                app.plot_zoom_end = Some(new_end);
+                apply_zoom_to_full_data(app);
+            }
+        }
+    }
+
+    update_cursor_values(app);
 }
 
 /// Helper to format time as absolute `YYYY-MM-DD HH:MM:SS.ffffff` (microsecond
@@ -1677,33 +1831,78 @@ fn format_cursor_value(value: f64, decimals: usize) -> String {
     format!("{:.*}", decimals, value)
 }
 
+/// Where each message's frames are in a log, so the cursor can find the latest frame
+/// of every message with a binary search instead of reading the whole log each time
+/// it moves. Built once per log, the first time the cursor needs it.
+pub struct FrameIndex {
+    /// The log this index was built from; a different log means rebuilding it.
+    messages: Arc<[LogObject]>,
+    /// For each (channel, ID): the positions of its frames in `messages`, in time order.
+    by_message: std::collections::HashMap<(u16, u32), Vec<u32>>,
+}
+
+impl FrameIndex {
+    fn build(messages: Arc<[LogObject]>) -> Self {
+        let mut by_message: std::collections::HashMap<(u16, u32), Vec<u32>> =
+            std::collections::HashMap::new();
+        for (position, msg) in messages.iter().enumerate() {
+            if let Some((id, channel, _, _)) = frame_fields(msg) {
+                by_message.entry((channel, id)).or_default().push(position as u32);
+            }
+        }
+        // A merged log is already in time order; make sure, since the search needs it.
+        let timestamp = |position: &u32| frame_fields(&messages[*position as usize]).map_or(0, |f| f.2);
+        for positions in by_message.values_mut() {
+            if !positions.is_sorted_by_key(timestamp) {
+                positions.sort_by_key(timestamp); // stable: equal times keep log order
+            }
+        }
+        Self { messages, by_message }
+    }
+
+    fn is_for(&self, messages: &Arc<[LogObject]>) -> bool {
+        Arc::ptr_eq(&self.messages, messages)
+    }
+
+    /// The data of each message's latest frame at or before `cursor` (Unix seconds).
+    fn latest_at(&self, cursor: f64) -> impl Iterator<Item = ((u16, u32), &[u8])> {
+        self.by_message.iter().filter_map(move |(key, positions)| {
+            let position = last_at_or_before(positions, cursor, |position| {
+                frame_fields(&self.messages[position as usize]).map_or(0, |f| f.2)
+            })?;
+            let (_, _, _, data) = frame_fields(&self.messages[position as usize])?;
+            Some((*key, data))
+        })
+    }
+}
+
+/// The last of `positions` (sorted by time) whose frame is at or before `cursor`,
+/// given each frame's timestamp in Unix nanoseconds. Frames at the same time count
+/// in order, so the later one wins.
+fn last_at_or_before(positions: &[u32], cursor: f64, timestamp: impl Fn(u32) -> u64) -> Option<u32> {
+    // object_time_stamp is absolute Unix nanoseconds, as in extract_series_data.
+    let count = positions.partition_point(|&p| timestamp(p) as f64 / 1_000_000_000.0 <= cursor);
+    count.checked_sub(1).map(|i| positions[i])
+}
+
 /// Decode every signal at the cursor, plotted or not, from the latest frame of each
-/// message at or before that time. Runs once per click rather than on every frame.
+/// message at or before that time.
 fn update_cursor_values(app: &mut CanDataApp) {
     let Some(cursor) = app.plot_cursor_time else {
         app.plot_cursor_values.clear();
         return;
     };
 
-    let mut latest: std::collections::HashMap<(u16, u32), (u64, &[u8])> =
-        std::collections::HashMap::new();
-    for msg in app.messages.iter() {
-        let Some((id, channel, timestamp, data)) = frame_fields(msg) else {
-            continue;
-        };
-        // object_time_stamp is absolute Unix nanoseconds, as in extract_series_data.
-        if timestamp as f64 / 1_000_000_000.0 > cursor {
-            continue;
-        }
-        let slot = latest.entry((channel, id)).or_insert((timestamp, data));
-        if timestamp >= slot.0 {
-            *slot = (timestamp, data);
-        }
+    if !app.plot_frame_index.as_ref().is_some_and(|index| index.is_for(&app.messages)) {
+        app.plot_frame_index = Some(FrameIndex::build(app.messages.clone()));
     }
+    let Some(index) = app.plot_frame_index.as_ref() else {
+        return;
+    };
 
     let mut values = std::collections::HashMap::new();
-    for ((channel, id), (_, data)) in &latest {
-        if let Some(message) = app.dbc_channels.get(channel).and_then(|db| db.messages.get(id)) {
+    for ((channel, id), data) in index.latest_at(cursor) {
+        if let Some(message) = app.dbc_channels.get(&channel).and_then(|db| db.messages.get(&id)) {
             for sig in message.signals.values() {
                 values.insert(
                     format!("CAN:{}:{}:{}", channel, id, sig.name),
@@ -1711,8 +1910,8 @@ fn update_cursor_values(app: &mut CanDataApp) {
                 );
             }
         }
-        if let Some(ldf) = app.ldf_channels.get(channel) {
-            if let Some(frame) = ldf.frames.values().find(|f| f.id == *id) {
+        if let Some(ldf) = app.ldf_channels.get(&channel) {
+            if let Some(frame) = ldf.frames.values().find(|f| f.id == id) {
                 for mapping in &frame.signals {
                     if let Some(sig) = ldf.signals.get(&mapping.signal_name) {
                         values.insert(
@@ -1771,6 +1970,60 @@ mod tests {
         assert_eq!(calc_x_tick_count(600.0), 6);  // 600/80=7.5 → 7 → clamp 6
         assert_eq!(calc_x_tick_count(160.0), 2);
         assert_eq!(calc_x_tick_count(320.0), 4);
+    }
+
+    fn series_at(times: &[f64]) -> Series {
+        Series {
+            name: "test".into(),
+            color: gpui::rgb(0xffffff).into(),
+            unit: None,
+            points: times
+                .iter()
+                .enumerate()
+                .map(|(index, &time)| DataPoint { time, value: 0.0, index })
+                .collect(),
+            time_labels: vec![String::new(); times.len()],
+        }
+    }
+
+    #[test]
+    fn cursor_step_starts_at_one_and_caps() {
+        assert_eq!(cursor_step(0.0, 30.0), 1.0); // a tap
+        assert_eq!(cursor_step(0.5, 30.0), 1.0); // the key has only just started repeating
+        assert!(cursor_step(1.0, 30.0) > 2.0);
+        assert!(cursor_step(1.5, 30.0) > cursor_step(1.0, 30.0));
+        assert_eq!(cursor_step(10.0, 30.0), 30.0);
+        assert_eq!(cursor_step(10.0, 0.5), 1.0); // never less than 1
+    }
+
+    #[test]
+    fn step_through_samples_merges_series() {
+        let a = series_at(&[1.0, 3.0, 5.0]);
+        let b = series_at(&[2.0, 3.0, 6.0]);
+        let both = [&a, &b];
+        assert_eq!(step_through_samples(&both, 1.0, 1.0, 1), Some(2.0));
+        assert_eq!(step_through_samples(&both, 2.0, 1.0, 1), Some(3.0));
+        assert_eq!(step_through_samples(&both, 3.0, 1.0, 2), Some(6.0));
+        assert_eq!(step_through_samples(&both, 2.5, -1.0, 1), Some(2.0));
+        assert_eq!(step_through_samples(&both, 5.0, -1.0, 2), Some(2.0));
+        // Fewer samples than steps: stop at the last one.
+        assert_eq!(step_through_samples(&both, 4.0, 1.0, 10), Some(6.0));
+        // Nothing further that way.
+        assert_eq!(step_through_samples(&both, 6.0, 1.0, 1), None);
+        assert_eq!(step_through_samples(&both, 1.0, -1.0, 1), None);
+    }
+
+    #[test]
+    fn last_at_or_before_finds_latest_frame() {
+        // Positions 10, 11, 12, 13 at 1 s, 2 s, 2 s, 3 s.
+        let times = |p: u32| [1_000_000_000u64, 2_000_000_000, 2_000_000_000, 3_000_000_000][(p - 10) as usize];
+        let positions = [10, 11, 12, 13];
+        assert_eq!(last_at_or_before(&positions, 0.5, times), None);
+        assert_eq!(last_at_or_before(&positions, 1.0, times), Some(10));
+        assert_eq!(last_at_or_before(&positions, 1.5, times), Some(10));
+        assert_eq!(last_at_or_before(&positions, 2.0, times), Some(12)); // later of two at 2 s
+        assert_eq!(last_at_or_before(&positions, 9.0, times), Some(13));
+        assert_eq!(last_at_or_before(&[], 9.0, times), None);
     }
 
     #[test]
