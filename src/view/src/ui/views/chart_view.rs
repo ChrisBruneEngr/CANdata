@@ -85,13 +85,19 @@ fn render_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoEl
         .flex()
         .items_center()
         .justify_between()
+        .gap_4()
         .px_4()
-        .py_1()
+        // A fixed height that fits the Reset Zoom button, so the charts below don't
+        // jump when it appears or disappears.
+        .h(px(32.0))
+        .flex_none()
         .bg(rgb(0x18181b))
         .border_b_1()
         .border_color(rgb(0x27272a))
         .child(
             div()
+                .min_w_0()
+                .truncate() // one line, cut short on a narrow window
                 .text_xs()
                 .text_color(rgb(0x71717a))
                 .child("Click = set cursor · ←/→ = move cursor (Shift = next sample) · drag or wheel = zoom · right-drag = pan · Ctrl + wheel = scroll lanes")
@@ -99,6 +105,8 @@ fn render_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoEl
         .when_some(app.plot_cursor_time, |this, time| {
             this.child(
                 div()
+                    .flex_none()
+                    .whitespace_nowrap()
                     .text_xs()
                     .text_color(rgb(0xd4d4d8))
                     .child(format!("Cursor: {}", format_time_relative_or_absolute(time, app.start_time)))
@@ -107,6 +115,7 @@ fn render_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoEl
         .child(
             div()
                 .flex()
+                .flex_none()
                 .items_center()
                 .gap_2()
                 .when(is_zoomed, |this| {
