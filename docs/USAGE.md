@@ -147,7 +147,15 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 
 ### Cursor
 
-Click a chart to place the cursor. It stays where you put it until you click somewhere else:
+Click a chart to place the cursor, then fine-tune it with the keyboard:
+
+- **← / →** move the cursor one pixel at the current zoom, so zooming in gives finer steps. Hold the key to keep moving; the longer it's held, the faster it goes, up to about a fortieth of the plot width per repeat.
+- **Shift + ← / →** jump to the previous or next sample of the selected lane's signals (of every plotted signal if that lane is empty). Holding it speeds up too.
+- While zoomed in, the view scrolls to keep the cursor in sight when it reaches either edge. The cursor stops at the ends of the data.
+- If there is no cursor yet, the first arrow press puts it in the middle of the view.
+- The arrow keys work after you click in the charts. Clicking a text box, such as the signal search, gives the keys back to that box.
+
+The cursor stays where you put it until you move it or click somewhere else:
 
 - Each chart draws a vertical line at the cursor, with a marker on the signal's latest sample at or before that time. The value appears in the chart's header.
 - The signal list shows every signal's value at the cursor in a right-aligned column, whether or not it is plotted. A signal with no value has not been received by that time.
@@ -318,7 +326,8 @@ CANdata has no global hotkey registry. Shortcuts are per-view.
 - **Mouse wheel** — zoom in/out.
 - **Right-drag** — pan while zoomed in.
 - **Ctrl + wheel** — scroll the lanes.
-- No keyboard shortcuts.
+- **← / →** — move the cursor; hold to speed up.
+- **Shift + ← / →** — move the cursor to the previous or next sample.
 
 ### Window controls
 

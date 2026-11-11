@@ -118,6 +118,8 @@ impl CanDataApp {
             zoom_drag_current_x: None,
             plot_cursor_time: None,
             plot_cursor_values: std::collections::HashMap::new(),
+            plot_focus_handle: None,
+            plot_key_hold_start: None,
             plot_scroll_handle: gpui::ScrollHandle::new(),
             // File menu dropdown state
             show_file_menu: false,
