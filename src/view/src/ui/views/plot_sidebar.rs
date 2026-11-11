@@ -198,10 +198,10 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanDataApp>) -> AnyE
                 )
                 .child(
                     div()
-                        .w(px(60.0))
+                        .w(px(76.0))
                         .text_xs()
                         .text_color(if *is_can { rgb(0x89b4fa) } else { rgb(0xf9e2af) })
-                        .child(format!("0x{:X}", id))
+                        .child(crate::rendering::format_message_id(*id, false))
                 )
                 .child(
                     div()
@@ -327,7 +327,7 @@ fn plot_color(app: &CanDataApp, signal_id: &str) -> Option<Hsla> {
 /// True if a message or frame matches the search text by name or hex ID.
 fn message_matches(name: &str, id: u32, filter_text: &str) -> bool {
     name.to_lowercase().contains(filter_text)
-        || format!("0x{:x}", id).to_lowercase().contains(filter_text)
+        || crate::rendering::format_message_id(id, false).to_lowercase().contains(filter_text)
 }
 
 /// Build one alphabetical list of signals across all loaded channels. Channels
@@ -416,7 +416,7 @@ fn extract_alphabetical_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
             is_can: entry.is_can,
             ch_id: entry.ch_id,
             msg_id: entry.msg_id,
-            note: is_duplicate.then(|| format!("Ch{} 0x{:X}", entry.ch_id, entry.msg_id)),
+            note: is_duplicate.then(|| format!("Ch{} {}", entry.ch_id, crate::rendering::format_message_id(entry.msg_id, false))),
             value: app.plot_cursor_values.get(&entry.id).cloned(),
         });
     }
@@ -452,7 +452,7 @@ fn extract_grouped_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
 
             for msg in messages {
                 let matches_msg = msg.name.to_lowercase().contains(&filter_text)
-                    || format!("0x{:x}", msg.id).to_lowercase().contains(&filter_text);
+                    || crate::rendering::format_message_id(msg.id, false).to_lowercase().contains(&filter_text);
                 let matching_signals: Vec<_> = msg.signals.values()
                     .filter(|s| s.name.to_lowercase().contains(&filter_text))
                     .collect();
