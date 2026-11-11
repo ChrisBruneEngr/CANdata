@@ -32,13 +32,27 @@ fn format_abs_ns(timestamp: u64, _start_time: Option<chrono::NaiveDateTime>) -> 
 /// # Returns
 /// A tuple of 5 `Pixels` values representing the widths for:
 /// (time, channel, type, id, dlc) columns
+/// Bit 31 of a CAN ID as stored in BLF and DBC files: set for an extended
+/// (29-bit) frame. It is a flag, not part of the ID on the bus.
+pub const CAN_ID_EXTENDED_FLAG: u32 = 0x8000_0000;
+
+/// Mask for the 29 ID bits of an extended CAN ID.
+pub const CAN_ID_MASK: u32 = 0x1FFF_FFFF;
+
 /// Format a message ID the way the log view shows it: decimal, or hex with a
-/// `0x` prefix and at least three digits.
+/// `0x` prefix. The extended-frame flag in bit 31 is not shown. Extended IDs
+/// get all eight hex digits (`0x0CFFA001`), standard IDs at least three
+/// (`0x123`), so the two kinds are easy to tell apart.
+///
+/// IDs are kept raw (flag included) everywhere else, because DBC files store
+/// extended IDs the same way and lookups match on the raw value.
 pub fn format_message_id(id: u32, decimal: bool) -> String {
-    if decimal {
-        id.to_string()
-    } else {
-        format!("0x{:03X}", id)
+    let extended = id & CAN_ID_EXTENDED_FLAG != 0;
+    let bare = id & CAN_ID_MASK;
+    match (decimal, extended) {
+        (true, _) => bare.to_string(),
+        (false, true) => format!("0x{:08X}", bare),
+        (false, false) => format!("0x{:03X}", bare),
     }
 }
 
@@ -110,7 +124,7 @@ pub fn calculate_column_widths(
     // Each column also has px_2 padding (16px total), so visible gap between
     // adjacent column text is the sum of half-padding on each side (~8px).
     // A cap is never below the column's header minimum, so headers are not
-    // clipped. The ID cap fits a 29-bit extended ID (e.g. 0x1FFFFFFF).
+    // clipped. The ID cap fits an extended ID (e.g. 0x1FFFFFFF).
     max_time_width = max_time_width.min(200.0);
     max_ch_width = max_ch_width.min(MIN_CH);
     max_type_width = max_type_width.min(70.0);
@@ -561,6 +575,17 @@ mod tests {
         assert_eq!(format_message_id(0x5, false), "0x005");
         assert_eq!(format_message_id(0x1FFFFFFF, false), "0x1FFFFFFF");
         assert_eq!(format_message_id(291, true), "291");
+    }
+
+    #[test]
+    fn test_format_message_id_extended_flag() {
+        // BLF/DBC store extended IDs with bit 31 set.
+        assert_eq!(format_message_id(0x8CFF_A001, false), "0x0CFFA001");
+        assert_eq!(format_message_id(0x8CFF_A001, true), "218079233");
+        assert_eq!(format_message_id(0x9FFF_FFFF, false), "0x1FFFFFFF");
+        // A small extended ID still shows all eight digits.
+        assert_eq!(format_message_id(0x8000_0020, false), "0x00000020");
+        assert_eq!(format_message_id(0x020, false), "0x020");
     }
 
     #[test]
