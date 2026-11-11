@@ -208,6 +208,9 @@ pub struct CanDataApp {
     // Add-channel form Enter-key focus chain: set by PressEnter subscribe,
     // consumed by render() which has window access.
     pub pending_add_channel_focus: Option<PendingAddChannelFocus>,
+    /// The next step to open in the Library view after creating something, done by
+    /// the next render because making an input needs the window.
+    pub pending_library_step: Option<PendingLibraryStep>,
 
     // Signal sets — named collections of (ch, msg_id, signal) per library
     pub signal_set_store: crate::library::signal_sets::SignalSetStore,
@@ -235,6 +238,16 @@ pub enum PendingAddChannelFocus {
     ChannelName,
     /// Blur the window (so the channel name input loses focus and the cursor stops blinking).
     ChannelBlur,
+}
+
+/// What to open after creating a library or version, so setting one up flows
+/// straight on: new library → name its first version → add its first channel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PendingLibraryStep {
+    /// Open the Add Version box, ready to type in.
+    AddVersion,
+    /// Open the Add Channel form, ready to type in.
+    AddChannel,
 }
 
 impl CanDataApp {
@@ -346,6 +359,7 @@ impl CanDataApp {
             expanded_channels: std::collections::HashSet::new(),
             expanded_messages: std::collections::HashSet::new(),
             pending_add_channel_focus: None,
+            pending_library_step: None,
             // Signal sets
             signal_set_store: crate::library::signal_sets::load_signal_set_store(None),
             active_signal_set: None,
