@@ -183,6 +183,8 @@ pub struct CanDataApp {
     pub plot_focus_handle: Option<gpui::FocusHandle>,
     /// When the arrow key moving the cursor was first pressed, while it is held.
     pub plot_key_hold_start: Option<std::time::Instant>,
+    /// Where each message's frames are in `messages`, for finding the values at the cursor.
+    pub plot_frame_index: Option<crate::ui::views::chart_view::FrameIndex>,
     /// Scroll handle for the plot canvas (vertical scroll over the chart list).
     pub plot_scroll_handle: gpui::ScrollHandle,
 
@@ -329,6 +331,7 @@ impl CanDataApp {
             plot_cursor_values: std::collections::HashMap::new(),
             plot_focus_handle: None,
             plot_key_hold_start: None,
+            plot_frame_index: None,
             plot_scroll_handle: gpui::ScrollHandle::new(),
             // File menu dropdown state
             show_file_menu: false,

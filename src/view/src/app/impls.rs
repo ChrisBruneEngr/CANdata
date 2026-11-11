@@ -120,6 +120,7 @@ impl CanDataApp {
             plot_cursor_values: std::collections::HashMap::new(),
             plot_focus_handle: None,
             plot_key_hold_start: None,
+            plot_frame_index: None,
             plot_scroll_handle: gpui::ScrollHandle::new(),
             // File menu dropdown state
             show_file_menu: false,
@@ -1357,6 +1358,8 @@ impl CanDataApp {
     pub fn clear_plot_cursor(&mut self) {
         self.plot_cursor_time = None;
         self.plot_cursor_values.clear();
+        // The index holds on to the log it was built from; let an old log go.
+        self.plot_frame_index = None;
     }
 
     pub fn hide_add_channel_input(&mut self, cx: &mut Context<Self>) {
