@@ -282,6 +282,20 @@ impl CanDataApp {
                 self.current_file_name = file_name;
                 self.library_picker_dismissed = false;
                 self.library_picker_selected_version.clear();
+                // The old log's zoom window means nothing for the new one.
+                self.plot_zoom_start = None;
+                self.plot_zoom_end = None;
+                // Keep plotting the active signal set on the new data.
+                let reapplied =
+                    crate::controllers::signal_set_controller::reapply_active_signal_set(self);
+                if let (Some(set_name), 0) = (reapplied, error_count) {
+                    self.status_msg = format!(
+                        "✅ Loaded {} messages, plotted set '{}'",
+                        self.messages.len(),
+                        set_name
+                    )
+                    .into();
+                }
             }
             Err(e) => {
                 // Replace mode failed: keep the existing files/messages
@@ -453,6 +467,7 @@ impl CanDataApp {
             self.plot_data = std::sync::Arc::from([]);
             self.plot_full_data = std::sync::Arc::from([]);
             self.selected_signals.clear();
+            self.active_signal_set = None;
             self.blf_bytes_total = 0;
             self.blf_bytes_consumed = 0;
         } else {
@@ -474,6 +489,7 @@ impl CanDataApp {
         self.plot_data = std::sync::Arc::from([]);
         self.plot_full_data = std::sync::Arc::from([]);
         self.selected_signals.clear();
+        self.active_signal_set = None;
         self.current_file_name = None;
         self.start_time = None;
         self.blf_bytes_total = 0;
@@ -1120,6 +1136,14 @@ impl CanDataApp {
         cx: &mut Context<Self>,
     ) {
         self.apply_version_to_mappings(library_id, version_name, cx);
+        // A set belongs to one library; switching libraries leaves it behind.
+        if self
+            .active_signal_set
+            .as_ref()
+            .is_some_and(|(lid, _)| lid != library_id)
+        {
+            self.active_signal_set = None;
+        }
         self.active_library_id = Some(library_id.to_string());
         self.active_version_name = Some(version_name.to_string());
         // Persist active state so it survives restarts
@@ -1410,6 +1434,7 @@ impl CanDataApp {
     /// reset can be unit-tested without a context.
     pub fn clear_plot_state(&mut self) {
         self.selected_signals.clear();
+        self.active_signal_set = None;
         self.plot_data = std::sync::Arc::from([]);
         self.plot_full_data = std::sync::Arc::from([]);
         self.plot_zoom_start = None;
@@ -1994,8 +2019,10 @@ mod tests {
     #[test]
     fn clear_selected_signals_resets_plot() {
         let mut app = make_app_with_selected("CAN:1:0x100:EngineSpeed");
+        app.active_signal_set = Some(("lib1".into(), "Engine".into()));
         app.clear_plot_state();
         assert!(app.selected_signals.is_empty());
+        assert!(app.active_signal_set.is_none());
         assert!(app.plot_data.is_empty());
         assert!(app.plot_zoom_start.is_none());
         assert!(app.plot_zoom_end.is_none());
