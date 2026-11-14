@@ -187,11 +187,20 @@ impl CanDataApp {
                             )
                             .into();
 
-                            // 🔄 Auto-load the active version for each channel
+                            // 🔄 Auto-load the active version for each channel.
+                            // Older configs can still link channels to a version that
+                            // is no longer active; skip those so only one version loads.
+                            let active = config
+                                .active_library_id
+                                .as_deref()
+                                .zip(config.active_version_name.as_deref());
                             for mapping in &config.mappings {
                                 if let (Some(lib_id), Some(ver_name)) =
                                     (&mapping.library_id, &mapping.version_name)
                                 {
+                                    if active.is_some_and(|a| a != (lib_id.as_str(), ver_name.as_str())) {
+                                        continue;
+                                    }
                                     eprintln!(
                                         "  🔄 Auto-loading channel {} library {} version {}",
                                         mapping.channel_id, lib_id, ver_name
@@ -1059,6 +1068,54 @@ impl CanDataApp {
         cx.notify();
     }
 
+    /// Point the channels at one library version, replacing whatever version
+    /// was linked before (its databases are unloaded). Doesn't load the new
+    /// databases; `internal_load_library_version` does that.
+    pub(crate) fn link_version_channels(
+        &mut self,
+        library_id: &str,
+        version_name: &str,
+    ) -> Result<(), &'static str> {
+        let library = self
+            .library_manager
+            .find_library(library_id)
+            .ok_or("Library not found")?;
+        let version = library.get_version(version_name).ok_or("Version not found")?;
+        let channel_type = library.channel_type;
+        let channel_ids: Vec<u16> =
+            version.channel_databases.iter().map(|d| d.channel_id).collect();
+
+        // Only one version is loaded at a time: drop whatever the previous one
+        // loaded, or its channels keep showing in the plot's signal list.
+        self.unload_library_channels();
+
+        // Update mappings
+        for channel_id in channel_ids {
+            if let Some(mapping) = self
+                .app_config
+                .mappings
+                .iter_mut()
+                .find(|m| m.channel_id == channel_id)
+            {
+                mapping.library_id = Some(library_id.to_string());
+                mapping.version_name = Some(version_name.to_string());
+                mapping.channel_type = channel_type;
+            } else {
+                self.app_config
+                    .mappings
+                    .push(crate::models::ChannelMapping {
+                        channel_id,
+                        channel_type,
+                        library_id: Some(library_id.to_string()),
+                        version_name: Some(version_name.to_string()),
+                        path: String::new(),
+                        description: String::new(),
+                    });
+            }
+        }
+        Ok(())
+    }
+
     /// Apply a version to mappings and load it
     pub fn apply_version_to_mappings(
         &mut self,
@@ -1071,47 +1128,10 @@ impl CanDataApp {
             version_name, library_id
         );
 
-        let library = match self.library_manager.find_library(library_id) {
-            Some(lib) => lib,
-            None => {
-                self.status_msg = "Library not found".into();
-                cx.notify();
-                return;
-            }
-        };
-
-        let version = match library.get_version(version_name) {
-            Some(ver) => ver,
-            None => {
-                self.status_msg = "Version not found".into();
-                cx.notify();
-                return;
-            }
-        };
-
-        // Update mappings
-        for channel_db in &version.channel_databases {
-            if let Some(mapping) = self
-                .app_config
-                .mappings
-                .iter_mut()
-                .find(|m| m.channel_id == channel_db.channel_id)
-            {
-                mapping.library_id = Some(library_id.to_string());
-                mapping.version_name = Some(version_name.to_string());
-                mapping.channel_type = library.channel_type;
-            } else {
-                self.app_config
-                    .mappings
-                    .push(crate::models::ChannelMapping {
-                        channel_id: channel_db.channel_id,
-                        channel_type: library.channel_type,
-                        library_id: Some(library_id.to_string()),
-                        version_name: Some(version_name.to_string()),
-                        path: String::new(),
-                        description: String::new(),
-                    });
-            }
+        if let Err(msg) = self.link_version_channels(library_id, version_name) {
+            self.status_msg = msg.into();
+            cx.notify();
+            return;
         }
 
         // Load into memory
@@ -1167,12 +1187,10 @@ impl CanDataApp {
         self.active_version_name = None;
         self.app_config.active_library_id = None;
         self.app_config.active_version_name = None;
-        // Clear library_id/version_name on all channel mappings so the
-        // signal decoder stops producing decoded signals.
-        for mapping in &mut self.app_config.mappings {
-            mapping.library_id = None;
-            mapping.version_name = None;
-        }
+        // Unlink every channel and unload its database so the decoder and the
+        // plot's signal list stop using the deactivated version.
+        self.unload_library_channels();
+        crate::ui::views::chart_view::extract_and_update_series_data(self);
         if was_active {
             self.status_msg = "Library deactivated".into();
             self.save_config(cx);
@@ -1318,6 +1336,18 @@ impl CanDataApp {
         }
 
         Ok(())
+    }
+
+    /// Unload every library database and unlink every channel from its
+    /// library version. Libraries are the only source of channel databases,
+    /// so this empties the DBC/LDF caches. Context-free for tests.
+    pub(crate) fn unload_library_channels(&mut self) {
+        self.dbc_channels.clear();
+        self.ldf_channels.clear();
+        for mapping in &mut self.app_config.mappings {
+            mapping.library_id = None;
+            mapping.version_name = None;
+        }
     }
 
     /// Insert database into the appropriate channel map
@@ -2026,6 +2056,83 @@ mod tests {
         assert!(app.plot_data.is_empty());
         assert!(app.plot_zoom_start.is_none());
         assert!(app.plot_zoom_end.is_none());
+    }
+
+    /// App with one library holding two versions, each with the same kind of
+    /// DBC on a different channel ("ch4" on CAN 4, "ch2" on CAN 2).
+    fn app_with_two_versions() -> CanDataApp {
+        use crate::models::{ChannelDatabase, ChannelType, LibraryVersion, SignalLibrary};
+        let version = |name: &str, ch: u16| {
+            let mut v = LibraryVersion::new(name.into(), String::new(), String::new());
+            v.channel_databases.push(ChannelDatabase {
+                channel_type: ChannelType::CAN,
+                channel_id: ch,
+                channel_name: format!("CAN{}", ch),
+                database_path: String::new(),
+            });
+            v
+        };
+        let mut app = CanDataApp::new_state();
+        app.library_manager = crate::library::LibraryManager::from_libraries(vec![SignalLibrary {
+            id: "lib".into(),
+            name: "Lib".into(),
+            channel_type: ChannelType::CAN,
+            versions: vec![version("ch4", 4), version("ch2", 2)],
+        }]);
+        app
+    }
+
+    fn empty_dbc() -> parser::dbc::DbcDatabase {
+        parser::dbc::DbcDatabase {
+            messages: Default::default(),
+            version: String::new(),
+            description: None,
+        }
+    }
+
+    /// (channel, version) for every channel linked to a library version.
+    fn linked_channels(app: &CanDataApp) -> Vec<(u16, String)> {
+        app.app_config
+            .mappings
+            .iter()
+            .filter_map(|m| m.version_name.clone().map(|v| (m.channel_id, v)))
+            .collect()
+    }
+
+    #[test]
+    fn switching_versions_unloads_the_previous_versions_channels() {
+        let mut app = app_with_two_versions();
+        app.link_version_channels("lib", "ch2").unwrap();
+        app.dbc_channels.insert(2, empty_dbc()); // as loaded for "ch2"
+
+        app.link_version_channels("lib", "ch4").unwrap();
+
+        assert!(app.dbc_channels.is_empty(), "CAN 2's DBC is still loaded");
+        assert_eq!(linked_channels(&app), vec![(4, "ch4".to_string())]);
+    }
+
+    #[test]
+    fn unloading_library_channels_clears_databases_and_links() {
+        let mut app = app_with_two_versions();
+        app.link_version_channels("lib", "ch4").unwrap();
+        app.dbc_channels.insert(4, empty_dbc());
+
+        app.unload_library_channels();
+
+        assert!(app.dbc_channels.is_empty());
+        assert!(linked_channels(&app).is_empty());
+    }
+
+    #[test]
+    fn linking_an_unknown_version_changes_nothing() {
+        let mut app = app_with_two_versions();
+        app.link_version_channels("lib", "ch4").unwrap();
+        app.dbc_channels.insert(4, empty_dbc());
+
+        assert_eq!(app.link_version_channels("lib", "nope"), Err("Version not found"));
+
+        assert_eq!(app.dbc_channels.len(), 1);
+        assert_eq!(linked_channels(&app), vec![(4, "ch4".to_string())]);
     }
 
     #[test]
