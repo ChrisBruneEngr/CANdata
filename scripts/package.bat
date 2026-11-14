@@ -6,7 +6,7 @@ echo ========================================
 echo.
 
 REM Call the PowerShell script
-powershell -ExecutionPolicy Bypass -File "%~dp0package.ps1" -Version "1.0.0"
+powershell -ExecutionPolicy Bypass -File "%~dp0package.ps1" -Version "1.1.0"
 
 echo.
 echo Press any key to exit...

@@ -10,7 +10,7 @@
 # only needs the executable, the docs and the samples.
 
 param(
-    [string]$Version = "1.0.0",
+    [string]$Version = "1.1.0",
     [string]$OutputDir = ".\release-package"
 )
 
