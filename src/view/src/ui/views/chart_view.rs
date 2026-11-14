@@ -1,7 +1,10 @@
 use crate::app::CanDataApp;
 use gpui_component::input::{Input, InputEvent, InputState};
 use crate::models::{DataPoint, Series};
-use crate::plot_lanes::{auto_value_range, format_y_limit, pan_time_range, parse_y_range, PlotLane};
+use crate::plot_lanes::{
+    auto_value_range, format_y_limit, pan_time_range, parse_y_range, resize_pair, PlotLane,
+    MIN_LANE_HEIGHT,
+};
 use super::plot_sidebar::DraggedSignal;
 use blf::LogObject;
 use gpui::prelude::*;
@@ -479,8 +482,13 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
     let draw_right_margin = DRAW_RIGHT_MARGIN;
 
     let time_range = visible_time_range(app);
-    let mut lanes = Vec::with_capacity(app.plot_lanes.lanes.len());
+    let lane_count = app.plot_lanes.lanes.len();
+    // Lanes with a divider between each pair: lane, divider, lane, ...
+    let mut lanes = Vec::with_capacity(lane_count * 2);
     for (index, lane) in app.plot_lanes.lanes.iter().enumerate() {
+        if index > 0 {
+            lanes.push(render_lane_divider(index - 1, cx));
+        }
         lanes.push(render_lane(
             index,
             lane,
@@ -540,10 +548,10 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
             }
         }))
         .p_4()
-        .gap_2()
         .overflow_y_scroll()
         .track_scroll(&app.plot_scroll_handle)
         .when(app.plot_pan_start.is_some(), |this| this.cursor_grabbing())
+        .when(app.plot_lane_resize.is_some(), |this| this.cursor_row_resize())
         .children(lanes)
         // Zoom Box Overlay Layer
         .when(is_dragging, |this| {
@@ -602,6 +610,20 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
             cx.notify();
         }))
         .on_mouse_move(cx.listener(move |this: &mut CanDataApp, event: &MouseMoveEvent, window, cx| {
+            if let Some(drag) = this.plot_lane_resize {
+                // The button may have been released outside the plot.
+                if event.pressed_button == Some(MouseButton::Left) {
+                    let dy = f32::from(event.position.y - drag.start_y);
+                    let heights =
+                        resize_pair(drag.start_px, drag.start_heights, dy, MIN_LANE_HEIGHT);
+                    this.plot_lanes.set_pair_heights(drag.upper, heights);
+                } else {
+                    this.plot_lane_resize = None;
+                }
+                cx.notify();
+                return;
+            }
+
             // Handle Zoom Dragging
             if this.is_dragging_zoom {
                 this.zoom_drag_current_x = Some(event.position.x);
@@ -619,6 +641,10 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
             }
         }))
         .on_mouse_up(MouseButton::Left, cx.listener(move |this: &mut CanDataApp, event: &MouseUpEvent, window, cx| {
+            if this.plot_lane_resize.take().is_some() {
+                cx.notify();
+                return;
+            }
             if !this.is_dragging_zoom { return; }
             
             if let Some(start_x) = this.zoom_drag_start_x {
@@ -1102,11 +1128,10 @@ fn render_lane(
             .into_any_element(),
     };
 
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(100.0))
+    let mut card = div().flex().flex_col().flex_1();
+    // Lanes share the plot's height in proportion to their `height`.
+    card.style().flex_grow = Some(lane.height);
+    card.min_h(px(MIN_LANE_HEIGHT))
         .bg(rgb(0x18181b))
         .border_1()
         .border_color(if is_selected { rgb(0x3b82f6) } else { rgb(0x27272a) })
@@ -1156,7 +1181,52 @@ fn render_lane(
         .into_any_element()
 }
 
-/// Draw a lane's signals on one set of axes — gpui canvas self-drawn, no grid.
+/// The gap between lane `upper` and the lane below it. Dragging it moves
+/// height from one lane to the other; double-clicking makes them equal.
+fn render_lane_divider(upper: usize, cx: &mut Context<CanDataApp>) -> AnyElement {
+    div()
+        .id(("lane-divider", upper))
+        .flex_none()
+        .h(px(8.0))
+        .w_full()
+        .rounded(px(2.0))
+        .cursor_row_resize()
+        .hover(|style| style.bg(rgb(0x3f3f46)))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this: &mut CanDataApp, event: &MouseDownEvent, _, cx| {
+                // Don't start a zoom drag in the plot behind.
+                cx.stop_propagation();
+                if event.click_count == 2 {
+                    this.plot_lane_resize = None;
+                    this.plot_lanes.even_out_pair(upper);
+                    cx.notify();
+                    return;
+                }
+                // The scroll area's children alternate lane, divider, lane, ...
+                // and its scroll handle remembers where each was laid out.
+                let lane_px = |lane: usize| {
+                    this.plot_scroll_handle
+                        .bounds_for_item(lane * 2)
+                        .map(|b| f32::from(b.size.height))
+                };
+                let lanes = &this.plot_lanes.lanes;
+                if let (Some(above), Some(below), Some(a), Some(b)) =
+                    (lane_px(upper), lane_px(upper + 1), lanes.get(upper), lanes.get(upper + 1))
+                {
+                    this.plot_lane_resize = Some(crate::app::LaneResize {
+                        upper,
+                        start_y: event.position.y,
+                        start_px: (above, below),
+                        start_heights: (a.height, b.height),
+                    });
+                    cx.notify();
+                }
+            }),
+        )
+        .into_any_element()
+}
+
 /// Reduce `points` to what a plot `columns` pixels wide can show: for each
 /// pixel column keep the first, lowest, highest and last sample (in time
 /// order). The line drawn through them looks the same as one through every
@@ -1204,6 +1274,7 @@ fn downsample_for_display(
     Cow::Owned(out)
 }
 
+/// Draw a lane's signals on one set of axes — gpui canvas self-drawn, no grid.
 fn render_lane_plot(
     series_data: Arc<[Series]>,
     traces: Vec<(usize, Hsla)>,

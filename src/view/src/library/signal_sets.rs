@@ -21,10 +21,18 @@ pub struct SavedLane {
     /// Lanes saved before this setting existed show points.
     #[serde(default = "show_points_by_default")]
     pub show_points: bool,
+    /// Share of the plot height (1.0 = default). Lanes saved before lanes
+    /// could be resized get the default.
+    #[serde(default = "default_lane_height")]
+    pub height: f32,
 }
 
 fn show_points_by_default() -> bool {
     true
+}
+
+fn default_lane_height() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -100,6 +108,7 @@ pub fn saved_lanes_from_layout(layout: &crate::plot_lanes::LaneLayout) -> Vec<Sa
             entries: lane.signals.iter().filter_map(|id| parse_signal_id(id)).collect(),
             y_range: lane.y_range,
             show_points: lane.show_points,
+            height: lane.height,
         })
         .collect()
 }
@@ -121,6 +130,8 @@ pub fn layout_from_set(
                 signals: lane.entries.iter().map(|e| signal_id(e, channel_type)).collect(),
                 y_range: lane.y_range,
                 show_points: lane.show_points,
+                // A bad value in the file mustn't collapse or swallow the lane.
+                height: if lane.height.is_finite() && lane.height > 0.0 { lane.height } else { 1.0 },
                 ..Default::default()
             })
             .collect(),
@@ -320,6 +331,7 @@ mod tests {
                     signals: vec!["CAN:1:256:A".into(), "CAN:1:256:B".into()],
                     y_range: Some((-5.0, 100.5)),
                     show_points: false,
+                    height: 1.75,
                     ..Default::default()
                 },
                 PlotLane::default(),
@@ -342,6 +354,22 @@ mod tests {
         let json = r#"{"entries":[],"y_range":null}"#;
         let lane: SavedLane = serde_json::from_str(json).unwrap();
         assert!(lane.show_points);
+    }
+
+    #[test]
+    fn lanes_saved_before_resizing_get_the_default_height() {
+        let json = r#"{"entries":[],"y_range":null,"show_points":true}"#;
+        let lane: SavedLane = serde_json::from_str(json).unwrap();
+        assert_eq!(lane.height, 1.0);
+    }
+
+    #[test]
+    fn a_bad_saved_height_opens_at_the_default() {
+        let mut set = saved_set(Vec::new());
+        for height in [0.0, -2.0, f32::NAN] {
+            set.lanes = vec![SavedLane { entries: Vec::new(), y_range: None, show_points: true, height }];
+            assert_eq!(layout_from_set(&set, ChannelType::CAN).lanes[0].height, 1.0);
+        }
     }
 
     #[test]

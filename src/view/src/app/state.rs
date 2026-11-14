@@ -46,6 +46,17 @@ pub struct ScrollbarDragState {
     pub filtered_count: usize, // Number of filtered messages at drag start
 }
 
+/// A drag of the divider below lane `upper`, as it was when the drag began.
+#[derive(Debug, Clone, Copy)]
+pub struct LaneResize {
+    pub upper: usize,
+    pub start_y: Pixels,
+    /// On-screen heights of the two lanes, in pixels.
+    pub start_px: (f32, f32),
+    /// Their `height` values.
+    pub start_heights: (f32, f32),
+}
+
 /// Main application state
 pub struct CanDataApp {
     // View state
@@ -169,6 +180,8 @@ pub struct CanDataApp {
     pub is_dragging_zoom: bool,
     /// While right-dragging: the mouse x and zoom window where the pan began.
     pub plot_pan_start: Option<(Pixels, f64, f64)>,
+    /// The lane divider being dragged, if any.
+    pub plot_lane_resize: Option<LaneResize>,
     pub zoom_drag_start_x: Option<Pixels>,
     pub zoom_drag_current_x: Option<Pixels>,
 
@@ -337,6 +350,7 @@ impl CanDataApp {
             plot_full_time_max: None,
             is_dragging_zoom: false,
             plot_pan_start: None,
+            plot_lane_resize: None,
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
             // Plot display settings

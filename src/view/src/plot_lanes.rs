@@ -16,7 +16,13 @@ pub struct PlotLane {
     /// It stays put while zooming and panning, and is worked out again when the
     /// lane's signals change or Auto is turned back on.
     pub auto_y_range: Option<(f64, f64)>,
+    /// The lane's share of the plot height, relative to the other lanes
+    /// (1.0 = the default size). Kept relative so lanes scale with the window.
+    pub height: f32,
 }
+
+/// Lanes never get shorter than this, in pixels.
+pub const MIN_LANE_HEIGHT: f32 = 100.0;
 
 impl Default for PlotLane {
     fn default() -> Self {
@@ -25,6 +31,7 @@ impl Default for PlotLane {
             y_range: None,
             show_points: true,
             auto_y_range: None,
+            height: 1.0,
         }
     }
 }
@@ -138,6 +145,23 @@ impl LaneLayout {
         }
     }
 
+    /// Set the heights of lane `upper` and the lane below it.
+    pub fn set_pair_heights(&mut self, upper: usize, heights: (f32, f32)) {
+        if upper + 1 < self.lanes.len() {
+            self.lanes[upper].height = heights.0;
+            self.lanes[upper + 1].height = heights.1;
+        }
+    }
+
+    /// Give lane `upper` and the lane below it the same height, keeping their
+    /// combined height.
+    pub fn even_out_pair(&mut self, upper: usize) {
+        if upper + 1 < self.lanes.len() {
+            let half = (self.lanes[upper].height + self.lanes[upper + 1].height) / 2.0;
+            self.set_pair_heights(upper, (half, half));
+        }
+    }
+
     /// The signal's position within the first lane that plots it. Line colours
     /// follow this position.
     pub fn first_position(&self, signal: &str) -> Option<usize> {
@@ -195,6 +219,27 @@ impl LaneLayout {
     }
 }
 
+/// New heights for two neighbouring lanes after the divider between them is
+/// dragged `dy` pixels (down is positive). `start_px` is each lane's height on
+/// screen when the drag began and `start_heights` their `height` values then.
+/// The upper lane grows by `dy` and the lower one shrinks by the same amount,
+/// so their combined size is unchanged, and neither goes below `min_px`.
+pub fn resize_pair(
+    start_px: (f32, f32),
+    start_heights: (f32, f32),
+    dy: f32,
+    min_px: f32,
+) -> (f32, f32) {
+    let total_px = start_px.0 + start_px.1;
+    if total_px <= 2.0 * min_px {
+        return start_heights; // no room to move
+    }
+    let upper_px = (start_px.0 + dy).clamp(min_px, total_px - min_px);
+    let total = start_heights.0 + start_heights.1;
+    let upper = total * upper_px / total_px;
+    (upper, total - upper)
+}
+
 /// The Y range that fits `values`. When they are all equal the range is widened to
 /// include zero, so a flat line doesn't sit against the top of the lane.
 pub fn auto_value_range(values: impl Iterator<Item = f64>) -> Option<(f64, f64)> {
@@ -249,6 +294,54 @@ pub fn format_y_limit(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dragging_down_grows_the_upper_lane_and_shrinks_the_lower() {
+        // Two equal 200 px lanes; drag the divider down 50 px.
+        let (upper, lower) = resize_pair((200.0, 200.0), (1.0, 1.0), 50.0, 100.0);
+        assert!((upper - 1.25).abs() < 1e-6);
+        assert!((lower - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn dragging_up_shrinks_the_upper_lane_and_keeps_the_total() {
+        let (upper, lower) = resize_pair((300.0, 300.0), (2.0, 2.0), -150.0, 100.0);
+        assert!((upper - 1.0).abs() < 1e-6);
+        assert!((lower - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn resizing_stops_at_the_minimum_height() {
+        let (upper, lower) = resize_pair((200.0, 200.0), (1.0, 1.0), 1_000.0, 100.0);
+        assert!((upper - 1.5).abs() < 1e-6); // 300 px of 400
+        assert!((lower - 0.5).abs() < 1e-6); // 100 px, the minimum
+        let (upper, _) = resize_pair((200.0, 200.0), (1.0, 1.0), -1_000.0, 100.0);
+        assert!((upper - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn lanes_already_at_the_minimum_do_not_resize() {
+        assert_eq!(resize_pair((100.0, 100.0), (1.0, 1.0), 40.0, 100.0), (1.0, 1.0));
+    }
+
+    #[test]
+    fn evening_out_a_pair_leaves_other_lanes_alone() {
+        let mut layout = LaneLayout::from_lanes(vec![PlotLane::default(); 3]);
+        layout.set_pair_heights(0, (1.5, 0.5));
+        layout.lanes[2].height = 3.0;
+        layout.even_out_pair(0);
+        let heights: Vec<f32> = layout.lanes.iter().map(|l| l.height).collect();
+        assert_eq!(heights, vec![1.0, 1.0, 3.0]);
+    }
+
+    #[test]
+    fn a_moved_lane_keeps_its_height() {
+        let mut layout = LaneLayout::from_lanes(vec![PlotLane::default(); 2]);
+        layout.lanes[1].height = 2.0;
+        layout.select(1);
+        layout.move_selected_up();
+        assert_eq!(layout.lanes[0].height, 2.0);
+    }
+
     use super::*;
 
     fn signals(names: &[&str]) -> Vec<String> {
