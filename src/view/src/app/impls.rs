@@ -114,6 +114,7 @@ impl CanDataApp {
             plot_full_time_max: None,
             is_dragging_zoom: false,
             plot_pan_start: None,
+            plot_lane_resize: None,
             zoom_drag_start_x: None,
             zoom_drag_current_x: None,
             plot_cursor_time: None,
