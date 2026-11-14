@@ -4,6 +4,7 @@ use gpui::{prelude::*, *};
 
 // Declare modules
 mod app;
+mod axis_ticks;
 mod config;
 mod controllers;
 mod domain;

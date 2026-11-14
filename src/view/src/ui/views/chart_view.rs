@@ -1,5 +1,6 @@
 use crate::app::CanDataApp;
 use gpui_component::input::{Input, InputEvent, InputState};
+use crate::axis_ticks;
 use crate::models::{DataPoint, Series};
 use crate::plot_lanes::{
     auto_value_range, format_y_limit, pan_time_range, parse_y_range, resize_pair, PlotLane,
@@ -319,11 +320,14 @@ fn toggle_lane_auto_range(app: &mut CanDataApp) {
     let lane = &app.plot_lanes.lanes[selected];
     let new_range = match lane.y_range {
         Some(_) => None,
-        None => Some(
-            lane.auto_y_range
+        None => Some({
+            let (min, max) = lane
+                .auto_y_range
                 .or_else(|| lane_auto_range(app, lane))
-                .unwrap_or((0.0, 1.0)),
-        ),
+                .unwrap_or((0.0, 1.0));
+            // Start from round limits near what Auto showed (it widens to ticks).
+            axis_ticks::round_out(min, max, axis_ticks::nice_step((max - min) / 5.0))
+        }),
     };
     let lane = &mut app.plot_lanes.lanes[selected];
     lane.y_range = new_range;
@@ -468,7 +472,6 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
     let is_dragging = app.is_dragging_zoom;
     let drag_start = app.zoom_drag_start_x;
     let drag_current = app.zoom_drag_current_x;
-    let start_time = app.start_time;
     let cursor_time = app.plot_cursor_time;
 
     // Constant offsets based on layout:
@@ -496,7 +499,6 @@ fn render_chart_canvas(app: &CanDataApp, series_data: Arc<[Series]>, cx: &mut Co
             app,
             &series_data,
             time_range,
-            start_time,
             cursor_time,
             cx,
         ));
@@ -1049,7 +1051,6 @@ fn render_lane(
     app: &CanDataApp,
     series_data: &Arc<[Series]>,
     time_range: Option<(f64, f64)>,
-    start_time: Option<chrono::NaiveDateTime>,
     cursor_time: Option<f64>,
     cx: &mut Context<CanDataApp>,
 ) -> AnyElement {
@@ -1108,7 +1109,7 @@ fn render_lane(
             traces,
             range,
             lane.y_range.or(lane.auto_y_range),
-            start_time,
+            lane.y_range.is_none(),
             lane.show_points,
             cursor_time,
         )
@@ -1280,7 +1281,7 @@ fn render_lane_plot(
     traces: Vec<(usize, Hsla)>,
     time_range: (f64, f64),
     y_range: Option<(f64, f64)>,
-    start_time: Option<chrono::NaiveDateTime>,
+    y_is_auto: bool,
     show_points: bool,
     cursor_time: Option<f64>,
 ) -> impl IntoElement {
@@ -1290,7 +1291,7 @@ fn render_lane_plot(
     gpui::canvas(
         move |bounds, _window, _cx| {
             // All signals in a lane share one Y range; every lane shares one time range.
-            let (min_v, max_v) = match y_range {
+            let (mut min_v, mut max_v) = match y_range {
                 Some(range) => range,
                 None => auto_value_range(
                     prepaint_traces
@@ -1298,6 +1299,13 @@ fn render_lane_plot(
                         .flat_map(|(i, _)| prepaint_series[*i].points.iter().map(|p| p.value)),
                 )?,
             };
+            // Pick the Y tick step for this lane's height. An automatic range is
+            // widened to the ticks around it, so the axis ends on labelled values.
+            let chart_h = f32::from(bounds.size.height - PLOT_PAD_TOP - PLOT_PAD_BOTTOM);
+            let y_step = axis_ticks::value_step(min_v, max_v, chart_h, Y_TICK_SPACING_PX);
+            if y_is_auto {
+                (min_v, max_v) = axis_ticks::round_out(min_v, max_v, y_step);
+            }
             let (min_t, max_t) = time_range;
             Some(ChartLayout {
                 bounds,
@@ -1306,6 +1314,7 @@ fn render_lane_plot(
                 max_v,
                 t_range: (max_t - min_t).max(1e-9),
                 v_range: (max_v - min_v).max(1e-9),
+                y_step,
             })
         },
         move |_bounds, layout, window, cx| {
@@ -1314,10 +1323,10 @@ fn render_lane_plot(
                 None => return,
             };
             let bounds = layout.bounds;
-            let pad_left = px(36.0);
+            let pad_left = PLOT_PAD_LEFT;
             let pad_right = px(4.0);
-            let pad_top = px(4.0);
-            let pad_bottom = px(14.0);
+            let pad_top = PLOT_PAD_TOP;
+            let pad_bottom = PLOT_PAD_BOTTOM;
             let chart_w = bounds.size.width - pad_left - pad_right;
             let chart_h = bounds.size.height - pad_top - pad_bottom;
 
@@ -1361,14 +1370,40 @@ fn render_lane_plot(
                 }
             }
 
+            let y_ticks = axis_ticks::Ticks {
+                step: layout.y_step,
+                values: axis_ticks::multiples(layout.min_v, layout.max_v, layout.y_step),
+                decimals: axis_ticks::decimals_for(layout.y_step),
+            };
+            let x_ticks =
+                axis_ticks::time_ticks(layout.min_t, layout.min_t + layout.t_range, chart_w.as_f32());
+            let plot_right = origin_x + chart_w;
+
+            // === Grid lines, under the signals ===
+            for &v in &y_ticks.values {
+                let y_px = to_y(v);
+                let mut b = PathBuilder::stroke(px(1.));
+                b.move_to(point(origin_x, y_px));
+                b.line_to(point(plot_right, y_px));
+                if let Ok(path) = b.build() {
+                    window.paint_path(path, GRID_COLOR);
+                }
+            }
+            for &t in &x_ticks.values {
+                let x_px = to_x(t);
+                let mut b = PathBuilder::stroke(px(1.));
+                b.move_to(point(x_px, origin_y));
+                b.line_to(point(x_px, x_axis_y));
+                if let Ok(path) = b.build() {
+                    window.paint_path(path, GRID_COLOR);
+                }
+            }
+
             // === Y ticks and labels ===
-            let n_y_ticks = calc_y_tick_count(chart_h.as_f32());
-            let mut y_labels: Vec<gpui_component::plot::label::Text> = Vec::with_capacity(n_y_ticks);
-            for i in 0..n_y_ticks {
-                // i=0 is max_v at the top; the last tick is min_v at the bottom
-                let ratio = if n_y_ticks == 1 { 0.0 } else { i as f32 / (n_y_ticks - 1) as f32 };
-                let v = layout.max_v - (layout.max_v - layout.min_v) * ratio as f64;
-                let y_px = origin_y + chart_h * ratio;
+            let mut y_labels: Vec<gpui_component::plot::label::Text> =
+                Vec::with_capacity(y_ticks.values.len());
+            for &v in &y_ticks.values {
+                let y_px = to_y(v);
                 {
                     let mut b = PathBuilder::stroke(px(1.));
                     b.move_to(point(origin_x - px(4.), y_px));
@@ -1381,7 +1416,7 @@ fn render_lane_plot(
                 // must be relative to the canvas.
                 y_labels.push(
                     gpui_component::plot::label::Text::new(
-                        format!("{:.1}", v),
+                        axis_ticks::format_value(v, y_ticks.decimals),
                         point(
                             origin_x - px(6.) - bounds.origin.x,
                             y_px - px(5.) - bounds.origin.y,
@@ -1395,11 +1430,11 @@ fn render_lane_plot(
             gpui_component::plot::PlotLabel::new(y_labels).paint(&bounds, window, cx);
 
             // === X ticks and labels ===
-            let n_ticks = calc_x_tick_count(chart_w.as_f32());
-            let mut x_labels: Vec<gpui_component::plot::label::Text> = Vec::with_capacity(n_ticks);
-            for i in 0..n_ticks {
-                let ratio = if n_ticks == 1 { 0.0 } else { i as f32 / (n_ticks - 1) as f32 };
-                let x_px = origin_x + chart_w * ratio;
+            let mut x_labels: Vec<gpui_component::plot::label::Text> =
+                Vec::with_capacity(x_ticks.values.len());
+            let right_edge = bounds.origin.x + bounds.size.width;
+            for &t in &x_ticks.values {
+                let x_px = to_x(t);
                 {
                     let mut b = PathBuilder::stroke(px(1.));
                     b.move_to(point(x_px, x_axis_y));
@@ -1408,14 +1443,12 @@ fn render_lane_plot(
                         window.paint_path(path, stroke_color);
                     }
                 }
-                // Drop the date (the first 11 characters) from axis labels.
-                let t = layout.min_t + layout.t_range * ratio as f64;
-                let full_label = format_time_relative_or_absolute(t, start_time);
-                let label_text = if full_label.starts_with("Time: ") {
-                    full_label
-                } else {
-                    full_label.get(11..).unwrap_or(&full_label).to_string()
-                };
+                let label_text = axis_ticks::format_time(t, x_ticks.step);
+                // A label centred on a tick near the right edge would run off the lane.
+                let half_width = px(label_text.len() as f32 * 3.0);
+                if x_px + half_width > right_edge {
+                    continue;
+                }
                 x_labels.push(
                     gpui_component::plot::label::Text::new(
                         label_text,
@@ -1515,7 +1548,18 @@ struct ChartLayout {
     min_v: f64,
     max_v: f64,
     v_range: f64,
+    /// Distance between Y ticks.
+    y_step: f64,
 }
+
+/// Space around a lane's plot area, for the axis labels.
+const PLOT_PAD_LEFT: Pixels = px(36.0);
+const PLOT_PAD_TOP: Pixels = px(4.0);
+const PLOT_PAD_BOTTOM: Pixels = px(14.0);
+/// Y ticks are at least this far apart.
+const Y_TICK_SPACING_PX: f32 = 40.0;
+/// Faint lines across the plot at each tick.
+const GRID_COLOR: Rgba = Rgba { r: 0.247, g: 0.247, b: 0.275, a: 0.45 };
 
 
 /// Filter existing plot data by zoom range
@@ -2062,21 +2106,6 @@ fn update_cursor_values(app: &mut CanDataApp) {
     app.plot_cursor_values = values;
 }
 
-/// Estimate the number of X-axis ticks at 80px per tick, clamped to [2, 6].
-/// chart_w_px is the horizontal pixels in the canvas available for the lines (left/right padding removed).
-pub fn calc_x_tick_count(chart_w_px: f32) -> usize {
-    let approx = (chart_w_px / 80.0).floor() as usize;
-    approx.clamp(2, 6)
-}
-
-/// Estimate the number of Y-axis ticks at 50px per tick, clamped to [3, 8].
-/// chart_h_px is the vertical pixels in the canvas available for the lines (top/bottom padding removed).
-/// At least 3 (max / mid / min), at most 8 (so labels aren't too dense).
-pub fn calc_y_tick_count(chart_h_px: f32) -> usize {
-    let approx = (chart_h_px / 50.0).floor() as usize;
-    approx.clamp(3, 8)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2095,16 +2124,6 @@ mod tests {
         // display names extract the last segment:
         let display_name = sidebar_signal_id.split(':').last().unwrap();
         assert_eq!(display_name, "EngineSpeed");
-    }
-
-    #[test]
-    fn calc_x_tick_count_basic() {
-        assert_eq!(calc_x_tick_count(400.0), 5);
-        assert_eq!(calc_x_tick_count(80.0), 2);   // 80px → 1 → clamp 2
-        assert_eq!(calc_x_tick_count(40.0), 2);   // 40px → 0 → clamp 2
-        assert_eq!(calc_x_tick_count(600.0), 6);  // 600/80=7.5 → 7 → clamp 6
-        assert_eq!(calc_x_tick_count(160.0), 2);
-        assert_eq!(calc_x_tick_count(320.0), 4);
     }
 
     fn series_at(times: &[f64]) -> Series {
@@ -2203,16 +2222,6 @@ mod tests {
         assert_eq!(last_at_or_before(&positions, 2.0, times), Some(12)); // later of two at 2 s
         assert_eq!(last_at_or_before(&positions, 9.0, times), Some(13));
         assert_eq!(last_at_or_before(&[], 9.0, times), None);
-    }
-
-    #[test]
-    fn calc_y_tick_count_basic() {
-        assert_eq!(calc_y_tick_count(150.0), 3);  // 150/50=3 → clamp 3
-        assert_eq!(calc_y_tick_count(100.0), 3);  // 100/50=2 → clamp 3
-        assert_eq!(calc_y_tick_count(50.0), 3);   // 50/50=1 → clamp 3
-        assert_eq!(calc_y_tick_count(300.0), 6);  // 300/50=6
-        assert_eq!(calc_y_tick_count(500.0), 8);  // 500/50=10 → clamp 8
-        assert_eq!(calc_y_tick_count(250.0), 5);
     }
 
 }
