@@ -1157,6 +1157,53 @@ fn render_lane(
 }
 
 /// Draw a lane's signals on one set of axes — gpui canvas self-drawn, no grid.
+/// Reduce `points` to what a plot `columns` pixels wide can show: for each
+/// pixel column keep the first, lowest, highest and last sample (in time
+/// order). The line drawn through them looks the same as one through every
+/// sample, spikes included. Returns the points unchanged when there are
+/// already few enough. Expects points in time order.
+fn downsample_for_display(
+    points: &[DataPoint],
+    min_t: f64,
+    t_range: f64,
+    columns: usize,
+) -> std::borrow::Cow<'_, [DataPoint]> {
+    use std::borrow::Cow;
+    if columns == 0 || points.len() <= columns * 4 {
+        return Cow::Borrowed(points);
+    }
+    let column_of = |p: &DataPoint| {
+        let c = ((p.time - min_t) / t_range * columns as f64).floor();
+        c.clamp(0.0, (columns - 1) as f64) as usize
+    };
+
+    let mut out = Vec::with_capacity(columns * 4);
+    let mut start = 0;
+    while start < points.len() {
+        let column = column_of(&points[start]);
+        let mut end = start + 1;
+        let (mut lo, mut hi) = (start, start);
+        while end < points.len() && column_of(&points[end]) == column {
+            if points[end].value < points[lo].value {
+                lo = end;
+            }
+            if points[end].value > points[hi].value {
+                hi = end;
+            }
+            end += 1;
+        }
+        let mut keep = [start, lo, hi, end - 1];
+        keep.sort_unstable();
+        for (n, &i) in keep.iter().enumerate() {
+            if n == 0 || i != keep[n - 1] {
+                out.push(points[i]);
+            }
+        }
+        start = end;
+    }
+    Cow::Owned(out)
+}
+
 fn render_lane_plot(
     series_data: Arc<[Series]>,
     traces: Vec<(usize, Hsla)>,
@@ -1311,9 +1358,17 @@ fn render_lane_plot(
             gpui_component::plot::PlotLabel::new(x_labels).paint(&bounds, window, cx);
 
             // === Signal lines and optional points ===
+            // Draw at most a few points per pixel column: a long log can hold far
+            // more samples than the plot is wide, and every repaint redraws them.
+            let columns = chart_w.as_f32().max(1.0).ceil() as usize;
             window.with_content_mask(Some(plot_area.clone()), |window| {
                 for (series_index, color) in traces.iter() {
-                    let points = &series_data[*series_index].points;
+                    let points = downsample_for_display(
+                        &series_data[*series_index].points,
+                        layout.min_t,
+                        layout.t_range,
+                        columns,
+                    );
 
                     let mut builder = PathBuilder::stroke(px(1.0));
                     let mut started = false;
@@ -1993,6 +2048,50 @@ mod tests {
                 .collect(),
             time_labels: vec![String::new(); times.len()],
         }
+    }
+
+    fn points(values: &[f64]) -> Vec<DataPoint> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(i, &value)| DataPoint { time: i as f64, value, index: i })
+            .collect()
+    }
+
+    #[test]
+    fn downsampling_leaves_short_series_alone() {
+        let pts = points(&[1.0, 2.0, 3.0]);
+        let shown = downsample_for_display(&pts, 0.0, 3.0, 100);
+        assert!(matches!(shown, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(shown.len(), 3);
+    }
+
+    #[test]
+    fn downsampling_keeps_spikes_ends_and_time_order() {
+        // 10,000 samples of a flat signal with one spike up and one down.
+        let mut values = vec![5.0; 10_000];
+        values[3_333] = 100.0;
+        values[6_667] = -100.0;
+        let pts = points(&values);
+
+        let shown = downsample_for_display(&pts, 0.0, 10_000.0, 200);
+
+        assert!(shown.len() <= 200 * 4);
+        assert!(shown.iter().any(|p| p.value == 100.0), "upward spike lost");
+        assert!(shown.iter().any(|p| p.value == -100.0), "downward spike lost");
+        assert_eq!(shown.first().unwrap().index, 0);
+        assert_eq!(shown.last().unwrap().index, 9_999);
+        assert!(shown.windows(2).all(|w| w[0].time < w[1].time));
+    }
+
+    #[test]
+    fn downsampling_groups_samples_outside_the_window_into_edge_columns() {
+        // Zoomed in on 100..200 with neighbours on both sides.
+        let pts = points(&(0..300).map(|i| i as f64).collect::<Vec<_>>());
+        let shown = downsample_for_display(&pts, 100.0, 100.0, 10);
+        assert!(shown.len() <= 40);
+        assert_eq!(shown.first().unwrap().index, 0);
+        assert_eq!(shown.last().unwrap().index, 299);
     }
 
     #[test]
