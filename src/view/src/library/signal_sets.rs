@@ -9,6 +9,10 @@ pub struct SignalSetEntry {
     pub channel_id: u16,
     pub msg_id: u32,
     pub signal_name: String,
+    /// Set for a Math signal: its name. `channel_id`, `msg_id` and
+    /// `signal_name` are then unused. Older versions of the app skip it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub math_name: Option<String>,
 }
 
 /// One lane of a saved plot layout.
@@ -69,6 +73,14 @@ pub struct SignalSetStore {
 ///
 /// `bus` is discarded — the parent library's `channel_type` decides bus.
 pub fn parse_signal_id(sig_id: &str) -> Option<SignalSetEntry> {
+    if let Some(name) = sig_id.strip_prefix(crate::ui::views::chart_view::MATH_ID_PREFIX) {
+        return (!name.is_empty()).then(|| SignalSetEntry {
+            channel_id: 0,
+            msg_id: 0,
+            signal_name: String::new(),
+            math_name: Some(name.to_string()),
+        });
+    }
     let parts: Vec<&str> = sig_id.split(':').collect();
     if parts.len() < 4 {
         return None;
@@ -92,6 +104,7 @@ pub fn parse_signal_id(sig_id: &str) -> Option<SignalSetEntry> {
         channel_id,
         msg_id,
         signal_name,
+        math_name: None,
     })
 }
 
@@ -105,6 +118,9 @@ pub fn build_selected_signals_from_set(
 
 /// The `selected_signals`-format string for an entry.
 fn signal_id(entry: &SignalSetEntry, channel_type: crate::models::ChannelType) -> String {
+    if let Some(name) = &entry.math_name {
+        return format!("{}{}", crate::ui::views::chart_view::MATH_ID_PREFIX, name);
+    }
     let bus = match channel_type {
         crate::models::ChannelType::CAN => "CAN",
         crate::models::ChannelType::LIN => "LIN",
@@ -210,6 +226,37 @@ fn layout_from_lanes(
     )
 }
 
+impl SignalSetStore {
+    /// Point every entry for Math signal `old` at `new`. Returns true if any changed.
+    pub fn rename_math_signal(&mut self, old: &str, new: &str) -> bool {
+        let mut changed = false;
+        for set in self.sets_by_library.values_mut().flatten() {
+            let lanes = set.lanes.iter_mut().chain(set.windows.iter_mut().flat_map(|w| w.lanes.iter_mut()));
+            let entries = set.entries.iter_mut().chain(lanes.flat_map(|l| l.entries.iter_mut()));
+            for entry in entries {
+                if entry.math_name.as_deref() == Some(old) {
+                    entry.math_name = Some(new.to_string());
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Names of the sets (in any library) that use Math signal `name`.
+    pub fn sets_using_math_signal(&self, name: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for set in self.sets_by_library.values().flatten() {
+            let lanes = set.lanes.iter().chain(set.windows.iter().flat_map(|w| w.lanes.iter()));
+            let mut entries = set.entries.iter().chain(lanes.flat_map(|l| l.entries.iter()));
+            if entries.any(|e| e.math_name.as_deref() == Some(name)) {
+                found.push(set.name.clone());
+            }
+        }
+        found
+    }
+}
+
 /// Resolve the path to `signal_sets.json` next to `multi_channel_config.json`.
 pub fn signal_set_store_path(config_file_path: Option<&Path>) -> PathBuf {
     if let Some(dir) = config_file_path.and_then(|p| p.parent()) {
@@ -257,6 +304,44 @@ mod tests {
         assert_eq!(entry.channel_id, 1);
         assert_eq!(entry.msg_id, 256);
         assert_eq!(entry.signal_name, "EngineSpeed");
+    }
+
+    #[test]
+    fn math_signal_ids_round_trip() {
+        let entry = parse_signal_id("MATH:Motor_Power").unwrap();
+        assert_eq!(entry.math_name.as_deref(), Some("Motor_Power"));
+        assert_eq!(signal_id(&entry, ChannelType::CAN), "MATH:Motor_Power");
+        assert!(parse_signal_id("MATH:").is_none());
+        // Plain entries don't write the field, so older files stay the same.
+        let plain = parse_signal_id("CAN:1:256:A").unwrap();
+        assert!(!serde_json::to_string(&plain).unwrap().contains("math_name"));
+        let json = serde_json::to_string(&entry).unwrap();
+        assert_eq!(serde_json::from_str::<SignalSetEntry>(&json).unwrap(), entry);
+    }
+
+    #[test]
+    fn rename_and_find_math_signal_in_sets() {
+        let math = parse_signal_id("MATH:P").unwrap();
+        let mut store = SignalSetStore::default();
+        store.sets_by_library.insert(
+            "lib".into(),
+            vec![SignalSet {
+                name: "S".into(),
+                entries: vec![math.clone()],
+                lanes: vec![SavedLane { entries: vec![math.clone()], y_range: None, show_points: true, height: 1.0 }],
+                windows: vec![SavedWindow {
+                    name: "W".into(),
+                    lanes: vec![SavedLane { entries: vec![math], y_range: None, show_points: true, height: 1.0 }],
+                }],
+            }],
+        );
+        assert_eq!(store.sets_using_math_signal("P"), ["S"]);
+        assert!(store.rename_math_signal("P", "Q"));
+        assert!(store.sets_using_math_signal("P").is_empty());
+        assert_eq!(store.sets_using_math_signal("Q"), ["S"]);
+        let set = &store.sets_by_library["lib"][0];
+        assert_eq!(set.windows[0].lanes[0].entries[0].math_name.as_deref(), Some("Q"));
+        assert!(!store.rename_math_signal("P", "R"));
     }
 
     #[test]
@@ -316,6 +401,7 @@ mod tests {
                 channel_id: 1,
                 msg_id: 256,
                 signal_name: "EngineSpeed".into(),
+                math_name: None,
             }],
         };
         let out = build_selected_signals_from_set(&set, ChannelType::CAN);
@@ -332,6 +418,7 @@ mod tests {
                 channel_id: 2,
                 msg_id: 32,
                 signal_name: "Speed".into(),
+                math_name: None,
             }],
         };
         let out = build_selected_signals_from_set(&set, ChannelType::LIN);
@@ -345,9 +432,9 @@ mod tests {
             lanes: Vec::new(),
             windows: Vec::new(),
             entries: vec![
-                SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into() },
-                SignalSetEntry { channel_id: 1, msg_id: 512, signal_name: "B".into() },
-                SignalSetEntry { channel_id: 2, msg_id: 768, signal_name: "C".into() },
+                SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into(), math_name: None },
+                SignalSetEntry { channel_id: 1, msg_id: 512, signal_name: "B".into(), math_name: None },
+                SignalSetEntry { channel_id: 2, msg_id: 768, signal_name: "C".into(), math_name: None },
             ],
         };
         let out = build_selected_signals_from_set(&set, ChannelType::CAN);
@@ -357,7 +444,7 @@ mod tests {
     }
 
     fn entry(signal_name: &str) -> SignalSetEntry {
-        SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: signal_name.into() }
+        SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: signal_name.into(), math_name: None }
     }
 
     fn saved_set(lanes: Vec<SavedLane>) -> SignalSet {
@@ -516,6 +603,7 @@ mod tests {
                         channel_id: 1,
                         msg_id: 256,
                         signal_name: "EngineSpeed".into(),
+                        math_name: None,
                     }],
                 },
                 SignalSet {
@@ -523,8 +611,8 @@ mod tests {
                     lanes: Vec::new(),
                     windows: Vec::new(),
                     entries: vec![
-                        SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into() },
-                        SignalSetEntry { channel_id: 2, msg_id: 512, signal_name: "B".into() },
+                        SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into(), math_name: None },
+                        SignalSetEntry { channel_id: 2, msg_id: 512, signal_name: "B".into(), math_name: None },
                     ],
                 },
             ],

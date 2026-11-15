@@ -280,7 +280,7 @@ mod tests {
         app.app_config.active_library_id = Some("lib1".into());
         let entries = ["Speed", "Rpm"]
             .iter()
-            .map(|name| SignalSetEntry { channel_id: 1, msg_id: 0x100, signal_name: name.to_string() })
+            .map(|name| SignalSetEntry { channel_id: 1, msg_id: 0x100, signal_name: name.to_string(), math_name: None })
             .collect();
         app.signal_set_store.sets_by_library.insert(
             "lib1".into(),

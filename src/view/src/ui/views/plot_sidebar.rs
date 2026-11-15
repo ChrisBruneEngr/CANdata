@@ -51,6 +51,8 @@ pub enum SidebarItem {
         is_expanded: bool,
         ch_id: u16,
     },
+    /// A plain heading over a group of rows, such as Math signals.
+    GroupHeader { name: String },
     // Spec-mandated; ch_id/msg_id used for future channel/message lookup.
     #[allow(dead_code)]
     SignalItem {
@@ -164,6 +166,20 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanDataApp>) -> AnyE
                 )
                 .into_any_element()
         }
+        SidebarItem::GroupHeader { name } => div()
+            .px_2()
+            .h(px(24.0))
+            .flex_shrink_0()
+            .bg(rgb(0x18181b))
+            .border_b_1()
+            .border_color(rgb(0x27272a))
+            .flex()
+            .items_center()
+            .text_xs()
+            .font_weight(FontWeight::BOLD)
+            .text_color(rgb(0xc084fc))
+            .child(name.clone())
+            .into_any_element(),
         SidebarItem::MessageHeader { name, id, is_can, is_expanded, ch_id } => {
             let ch_id = *ch_id;
             let msg_id = *id;
@@ -289,10 +305,45 @@ pub fn render_sidebar_item(item: &SidebarItem, view: Entity<CanDataApp>) -> AnyE
 ///
 /// Pure function: reads only `&CanDataApp`, no cx / window / side effects.
 pub fn extract_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
-    match app.app_config.signal_list_mode {
+    let mut items = math_signal_items(app);
+    items.extend(match app.app_config.signal_list_mode {
         SignalListMode::Grouped => extract_grouped_signal_items(app),
         SignalListMode::Alphabetical => extract_alphabetical_signal_items(app),
+    });
+    items
+}
+
+/// The Math group: every Math signal matching the search, at the top of the
+/// list. One that can't be computed with the active library is marked ⚠.
+fn math_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
+    use crate::math::resolve::{Check, SignalIndex, check};
+    let filter_text = app.signal_filter_text.to_lowercase();
+    let signals: Vec<_> = app
+        .math_store
+        .signals
+        .iter()
+        .filter(|s| s.name.to_lowercase().contains(&filter_text))
+        .collect();
+    if signals.is_empty() {
+        return Vec::new();
     }
+    let index = SignalIndex::from_app(app);
+    let mut items = vec![SidebarItem::GroupHeader { name: "Math signals".into() }];
+    for signal in signals {
+        let id = format!("{}{}", super::chart_view::MATH_ID_PREFIX, signal.name);
+        let usable = matches!(check(&signal.equation, &index), Check::Ok { .. });
+        items.push(SidebarItem::SignalItem {
+            name: signal_label(&signal.name, &signal.unit),
+            plot_color: plot_color(app, &id),
+            is_can: true,
+            ch_id: 0,
+            msg_id: 0,
+            note: (!usable).then(|| "⚠ see Math".to_string()),
+            value: app.plot_cursor_values.get(&id).cloned(),
+            id,
+        });
+    }
+    items
 }
 
 /// Count selected signals per channel (for the ChannelHeader badge).
@@ -1191,7 +1242,7 @@ mod tests {
             let store_sets: Vec<_> = sets.into_iter().map(|(name, n)| crate::library::signal_sets::SignalSet {
                 name: name.to_string(),
                 lanes: Vec::new(), windows: Vec::new(), entries: (0..n).map(|i| crate::library::signal_sets::SignalSetEntry {
-                    channel_id: 1, msg_id: i as u32, signal_name: format!("sig{}", i),
+                    channel_id: 1, msg_id: i as u32, signal_name: format!("sig{}", i), math_name: None,
                 }).collect(),
             }).collect();
             app.signal_set_store.sets_by_library.insert(id.to_string(), store_sets);

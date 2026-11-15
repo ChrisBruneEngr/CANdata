@@ -1600,6 +1600,217 @@ fn filter_series_data_by_zoom(app: &CanDataApp) -> Arc<[Series]> {
     Arc::from(filtered_series)
 }
 
+/// Signal ids of plotted Math signals start with this, followed by the name.
+pub const MATH_ID_PREFIX: &str = "MATH:";
+
+/// Compute the points and unit of the Math signal `name` from the log.
+fn math_series_points(
+    app: &CanDataApp,
+    name: &str,
+    message_count: usize,
+) -> Result<(Vec<DataPoint>, Option<String>), String> {
+    use crate::math::resolve::{Check, SignalIndex, check};
+    let signal = app
+        .math_store
+        .signals
+        .iter()
+        .find(|s| s.name == name)
+        .ok_or_else(|| format!("There is no Math signal named '{}'", name))?;
+    let signals = match check(&signal.equation, &SignalIndex::from_app(app)) {
+        Check::Ok { signals } => signals,
+        other => return Err(other.summary(&signal.equation)),
+    };
+    let expr = crate::math::parser::parse(&signal.equation).map_err(|e| e.message)?;
+    let mut inputs = std::collections::HashMap::new();
+    for (signal_name, location) in signals {
+        let bus = if location.is_can { "CAN" } else { "LIN" };
+        let (points, _) = decode_signal_points(
+            app,
+            bus,
+            Some(location.channel_id),
+            location.msg_id,
+            &signal_name,
+            message_count,
+        );
+        let mut samples: Vec<(f64, f64)> = points.iter().map(|p| (p.time, p.value)).collect();
+        if !samples.is_sorted_by(|a, b| a.0 <= b.0) {
+            samples.sort_by(|a, b| a.0.total_cmp(&b.0));
+        }
+        inputs.insert(signal_name, samples);
+    }
+    let values = crate::math::eval::evaluate(&expr, &inputs, signal.time_mode)?;
+    let points = values
+        .into_iter()
+        .map(|(time, value)| DataPoint { time, value, index: 0 })
+        .collect();
+    let unit = (!signal.unit.trim().is_empty()).then(|| signal.unit.trim().to_string());
+    Ok((points, unit))
+}
+
+/// Decode every sample of one signal from the log: its points (index 0) and
+/// unit. Points come in log order, which is time order.
+fn decode_signal_points(
+    app: &CanDataApp,
+    bus_type: &str,
+    target_channel: Option<u16>,
+    msg_id: u32,
+    sig_name: &str,
+    message_count: usize,
+) -> (Vec<DataPoint>, Option<String>) {
+    const MAX_RAW_POINTS: usize = 1_000_000; // Max points: 1M (needed for 10min @ 1ms = 600K points)
+    let mut unit = None;
+    let mut points = Vec::new();
+    let mut collected = 0;
+
+    // Single pass: collect points with early termination if too many
+    for msg in app.messages.iter().take(message_count) {
+        // Early termination to prevent memory issues
+        if collected >= MAX_RAW_POINTS {
+            eprintln!("    ⚠️  Reached max raw points limit (1M), stopping collection");
+            break;
+        }
+
+        if bus_type != "CAN" && bus_type != "LIN" {
+            continue;
+        }
+
+        let (m_id, ch, timestamp, data, _flags): (u32, u16, u64, &[u8], u32) = match msg {
+            LogObject::CanMessage(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
+            LogObject::CanMessage2(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
+            LogObject::CanFdMessage(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
+            LogObject::CanFdMessage64(m) => (m.id, m.channel as u16, m.header.object_time_stamp, &m.data, m.header.object_flags),
+            LogObject::LinMessage(m) => (m.id as u32, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
+            LogObject::LinMessage2(m) => (0u32, 0u16, m.header.object_time_stamp, &m.data, m.header.object_flags),
+            _ => continue,
+        };
+
+        if m_id != msg_id {
+            continue;
+        }
+
+        // Check channel filter
+        if let Some(ch_filter) = target_channel {
+            if ch != ch_filter {
+                continue;
+            }
+        }
+
+        // Convert timestamp to seconds. After MergedView::from_segments,
+        // object_time_stamp is always absolute Unix nanoseconds (abs_ns),
+        // regardless of the original object_flags. The flags-based
+        // conversion (TimeTenMics / TimeOneNans) is done at merge time.
+        let time = timestamp as f64 / 1_000_000_000.0;
+        if collected == 0 {
+            eprintln!("    🕐 Using absolute Unix nanosecond timestamp");
+        }
+
+        
+        // Apply zoom filter if active
+        if let Some(start) = app.plot_zoom_start {
+            if time < start { continue; }
+        }
+        if let Some(end) = app.plot_zoom_end {
+            if time > end { continue; }
+        }
+
+        // Try to decode the signal
+        if bus_type == "CAN" {
+            if let Some(dbc) = app.dbc_channels.get(&ch) {
+                if let Some(dbc_msg) = dbc.messages.get(&m_id) {
+                    if let Some(sig) = dbc_msg.signals.get(sig_name) {
+                        if unit.is_none() && !sig.unit.is_empty() {
+                            unit = Some(display_unit(&sig.unit).to_string());
+                        }
+                        let val = sig.decode(data);
+                        points.push(DataPoint { time, value: val, index: 0 });
+                        collected += 1;
+                    }
+                }
+            }
+        } else if bus_type == "LIN" {
+            if let Some(ldf) = app.ldf_channels.get(&ch) {
+                // LDF frames are keyed by frame name, not by numeric ID,
+                // so we scan for the frame whose `id` matches m_id.
+                let frame = ldf.frames.values().find(|f| f.id == m_id);
+                if let Some(frame) = frame {
+                    // Find signal in frame mappings
+                    if let Some(mapping) = frame.signals.iter().find(|s| s.signal_name == sig_name) {
+                        if let Some(sig) = ldf.signals.get(&mapping.signal_name) {
+                            if unit.is_none() {
+                                unit = Some("".to_string()); // LIN usually doesn't have units in this parser
+                            }
+                            let val = sig.decode(data, mapping.offset) as f64;
+                            points.push(DataPoint { time, value: val, index: 0 });
+                            collected += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (points, unit)
+}
+
+/// Keep at most one point per millisecond when the data is denser than that,
+/// then number the points for label spacing.
+fn thin_and_index(mut points: Vec<DataPoint>) -> Vec<DataPoint> {
+    const SAMPLING_INTERVAL_MS: f64 = 1.0; // 1ms sampling interval
+    // Apply 1ms sampling if data is too dense
+    if points.len() > 1 {
+        let time_span = points.last().unwrap().time - points[0].time;
+        let avg_interval_ms = (time_span * 1000.0) / (points.len() as f64);
+        
+        if avg_interval_ms < SAMPLING_INTERVAL_MS {
+            eprintln!("    🔽 Applying 1ms sampling (avg interval: {:.3}ms)", avg_interval_ms);
+            
+            // Group points into 1ms buckets and keep one per bucket
+            let mut sampled = Vec::new();
+            let start_time = points[0].time;
+            let mut current_bucket = 0i64;
+            let mut bucket_point: Option<DataPoint> = None;
+            
+            for point in points.iter() {
+                let time_ms = (point.time - start_time) * 1000.0;
+                let bucket = (time_ms / SAMPLING_INTERVAL_MS).floor() as i64;
+                
+                if bucket != current_bucket {
+                    // New bucket, save previous bucket's point
+                    if let Some(p) = bucket_point {
+                        sampled.push(p);
+                    }
+                    current_bucket = bucket;
+                    bucket_point = Some(*point);
+                } else {
+                    // Same bucket, keep the point closest to bucket start
+                    if let Some(existing) = bucket_point {
+                        let existing_offset = (existing.time - start_time) * 1000.0 - (current_bucket as f64 * SAMPLING_INTERVAL_MS);
+                        let new_offset = time_ms - (bucket as f64 * SAMPLING_INTERVAL_MS);
+                        if new_offset < existing_offset {
+                            bucket_point = Some(*point);
+                        }
+                    }
+                }
+            }
+            
+            // Don't forget the last bucket
+            if let Some(p) = bucket_point {
+                sampled.push(p);
+            }
+            
+            eprintln!("    ✅ Sampled to {} points", sampled.len());
+            points = sampled;
+        } else {
+            eprintln!("    ✅ Data already sparse enough (avg interval: {:.3}ms)", avg_interval_ms);
+        }
+    }
+
+    // Assign indices for label spacing
+    for (i, p) in points.iter_mut().enumerate() {
+        p.index = i;
+    }
+    points
+}
+
 /// Extract series data from application state - SAFE VERSION
 pub fn extract_series_data(app: &CanDataApp) -> Arc<[Series]> {
     eprintln!("🔍 Starting data extraction...");
@@ -1613,8 +1824,6 @@ pub fn extract_series_data(app: &CanDataApp) -> Arc<[Series]> {
 
     // Limit processing to avoid stack overflow, but high enough for complete logs
     const MAX_MESSAGES: usize = 10_000_000;
-    const MAX_RAW_POINTS: usize = 1_000_000; // Max points: 1M (needed for 10min @ 1ms = 600K points)
-    const SAMPLING_INTERVAL_MS: f64 = 1.0; // 1ms sampling interval
 
     // Every window's signals are decoded, so switching windows is instant and
     // they all share one time range.
@@ -1644,128 +1853,49 @@ pub fn extract_series_data(app: &CanDataApp) -> Arc<[Series]> {
     for (idx, sig_id) in plotted.iter().enumerate() {
         eprintln!("  📡 Signal {}: {}", idx + 1, sig_id);
         
-        // Parse signal ID: BUS:CHANNEL:MSG_ID:SIG_NAME or BUS:MSG_ID:SIG_NAME (compat)
-        let parts: Vec<&str> = sig_id.split(':').collect();
-        if parts.len() < 3 {
-            eprintln!("    ❌ Skip: invalid format");
-            continue;
-        }
-
-        let (bus_type, channel_filter, msg_id_str, sig_name) = if parts.len() >= 4 {
-            let bus_type = parts[0];
-            let channel_id = parts[1];
-            let msg_id = parts[2];
-            let sig_name = parts[3..].join(":");
-            (bus_type, Some(channel_id.to_string()), msg_id.to_string(), sig_name)
-        } else {
-            (parts[0], None, parts[1].to_string(), parts[2].to_string())
-        };
-
-        let msg_id_res = if msg_id_str.starts_with("0x") {
-            u32::from_str_radix(&msg_id_str[2..], 16)
-        } else {
-            msg_id_str.parse::<u32>()
-        };
-        
-        let msg_id = match msg_id_res {
-            Ok(id) => id,
-            Err(_) => {
-                eprintln!("    ❌ Skip: invalid message ID");
-                continue;
-            }
-        };
-
-        let target_channel = channel_filter.and_then(|s| s.parse::<u16>().ok());
-        let mut unit = None;
-        let mut points = Vec::new();
-        let mut collected = 0;
-
-        // Single pass: collect points with early termination if too many
-        for msg in app.messages.iter().take(message_count) {
-            // Early termination to prevent memory issues
-            if collected >= MAX_RAW_POINTS {
-                eprintln!("    ⚠️  Reached max raw points limit (1M), stopping collection");
-                break;
-            }
-
-            if bus_type != "CAN" && bus_type != "LIN" {
-                continue;
-            }
-
-            let (m_id, ch, timestamp, data, _flags): (u32, u16, u64, &[u8], u32) = match msg {
-                LogObject::CanMessage(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
-                LogObject::CanMessage2(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
-                LogObject::CanFdMessage(m) => (m.id, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
-                LogObject::CanFdMessage64(m) => (m.id, m.channel as u16, m.header.object_time_stamp, &m.data, m.header.object_flags),
-                LogObject::LinMessage(m) => (m.id as u32, m.channel, m.header.object_time_stamp, &m.data, m.header.object_flags),
-                LogObject::LinMessage2(m) => (0u32, 0u16, m.header.object_time_stamp, &m.data, m.header.object_flags),
-                _ => continue,
-            };
-
-            if m_id != msg_id {
-                continue;
-            }
-
-            // Check channel filter
-            if let Some(ch_filter) = target_channel {
-                if ch != ch_filter {
+        let (points, unit) = if let Some(math_name) = sig_id.strip_prefix(MATH_ID_PREFIX) {
+            match math_series_points(app, math_name, message_count) {
+                Ok(result) => result,
+                Err(e) => {
+                    eprintln!("    ❌ Math signal {}: {}", math_name, e);
                     continue;
                 }
             }
-
-            // Convert timestamp to seconds. After MergedView::from_segments,
-            // object_time_stamp is always absolute Unix nanoseconds (abs_ns),
-            // regardless of the original object_flags. The flags-based
-            // conversion (TimeTenMics / TimeOneNans) is done at merge time.
-            let time = timestamp as f64 / 1_000_000_000.0;
-            if collected == 0 {
-                eprintln!("    🕐 Using absolute Unix nanosecond timestamp");
+        } else {
+            // Parse signal ID: BUS:CHANNEL:MSG_ID:SIG_NAME or BUS:MSG_ID:SIG_NAME (compat)
+            let parts: Vec<&str> = sig_id.split(':').collect();
+            if parts.len() < 3 {
+                eprintln!("    ❌ Skip: invalid format");
+                continue;
             }
 
+            let (bus_type, channel_filter, msg_id_str, sig_name) = if parts.len() >= 4 {
+                let bus_type = parts[0];
+                let channel_id = parts[1];
+                let msg_id = parts[2];
+                let sig_name = parts[3..].join(":");
+                (bus_type, Some(channel_id.to_string()), msg_id.to_string(), sig_name)
+            } else {
+                (parts[0], None, parts[1].to_string(), parts[2].to_string())
+            };
+
+            let msg_id_res = if msg_id_str.starts_with("0x") {
+                u32::from_str_radix(&msg_id_str[2..], 16)
+            } else {
+                msg_id_str.parse::<u32>()
+            };
             
-            // Apply zoom filter if active
-            if let Some(start) = app.plot_zoom_start {
-                if time < start { continue; }
-            }
-            if let Some(end) = app.plot_zoom_end {
-                if time > end { continue; }
-            }
+            let msg_id = match msg_id_res {
+                Ok(id) => id,
+                Err(_) => {
+                    eprintln!("    ❌ Skip: invalid message ID");
+                    continue;
+                }
+            };
 
-            // Try to decode the signal
-            if bus_type == "CAN" {
-                if let Some(dbc) = app.dbc_channels.get(&ch) {
-                    if let Some(dbc_msg) = dbc.messages.get(&m_id) {
-                        if let Some(sig) = dbc_msg.signals.get(&sig_name) {
-                            if unit.is_none() && !sig.unit.is_empty() {
-                                unit = Some(display_unit(&sig.unit).to_string());
-                            }
-                            let val = sig.decode(data);
-                            points.push(DataPoint { time, value: val, index: 0 });
-                            collected += 1;
-                        }
-                    }
-                }
-            } else if bus_type == "LIN" {
-                if let Some(ldf) = app.ldf_channels.get(&ch) {
-                    // LDF frames are keyed by frame name, not by numeric ID,
-                    // so we scan for the frame whose `id` matches m_id.
-                    let frame = ldf.frames.values().find(|f| f.id == m_id);
-                    if let Some(frame) = frame {
-                        // Find signal in frame mappings
-                        if let Some(mapping) = frame.signals.iter().find(|s| s.signal_name == sig_name) {
-                            if let Some(sig) = ldf.signals.get(&mapping.signal_name) {
-                                if unit.is_none() {
-                                    unit = Some("".to_string()); // LIN usually doesn't have units in this parser
-                                }
-                                let val = sig.decode(data, mapping.offset) as f64;
-                                points.push(DataPoint { time, value: val, index: 0 });
-                                collected += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+            let target_channel = channel_filter.and_then(|s| s.parse::<u16>().ok());
+            decode_signal_points(app, bus_type, target_channel, msg_id, &sig_name, message_count)
+        };
 
         eprintln!("    📈 Collected {} raw points", points.len());
 
@@ -1779,59 +1909,7 @@ pub fn extract_series_data(app: &CanDataApp) -> Arc<[Series]> {
         let max_time = points.iter().map(|p| p.time).fold(f64::NEG_INFINITY, f64::max);
         eprintln!("    ⏱️  Time range: {:.3}s to {:.3}s (span: {:.3}s)", min_time, max_time, max_time - min_time);
 
-        // Apply 1ms sampling if data is too dense
-        if points.len() > 1 {
-            let time_span = points.last().unwrap().time - points[0].time;
-            let avg_interval_ms = (time_span * 1000.0) / (points.len() as f64);
-            
-            if avg_interval_ms < SAMPLING_INTERVAL_MS {
-                eprintln!("    🔽 Applying 1ms sampling (avg interval: {:.3}ms)", avg_interval_ms);
-                
-                // Group points into 1ms buckets and keep one per bucket
-                let mut sampled = Vec::new();
-                let start_time = points[0].time;
-                let mut current_bucket = 0i64;
-                let mut bucket_point: Option<DataPoint> = None;
-                
-                for point in points.iter() {
-                    let time_ms = (point.time - start_time) * 1000.0;
-                    let bucket = (time_ms / SAMPLING_INTERVAL_MS).floor() as i64;
-                    
-                    if bucket != current_bucket {
-                        // New bucket, save previous bucket's point
-                        if let Some(p) = bucket_point {
-                            sampled.push(p);
-                        }
-                        current_bucket = bucket;
-                        bucket_point = Some(*point);
-                    } else {
-                        // Same bucket, keep the point closest to bucket start
-                        if let Some(existing) = bucket_point {
-                            let existing_offset = (existing.time - start_time) * 1000.0 - (current_bucket as f64 * SAMPLING_INTERVAL_MS);
-                            let new_offset = time_ms - (bucket as f64 * SAMPLING_INTERVAL_MS);
-                            if new_offset < existing_offset {
-                                bucket_point = Some(*point);
-                            }
-                        }
-                    }
-                }
-                
-                // Don't forget the last bucket
-                if let Some(p) = bucket_point {
-                    sampled.push(p);
-                }
-                
-                eprintln!("    ✅ Sampled to {} points", sampled.len());
-                points = sampled;
-            } else {
-                eprintln!("    ✅ Data already sparse enough (avg interval: {:.3}ms)", avg_interval_ms);
-            }
-        }
-
-        // Assign indices for label spacing
-        for (i, p) in points.iter_mut().enumerate() {
-            p.index = i;
-        }
+        let points = thin_and_index(points);
 
         // time_labels field is now unused by render (the X axis draws via
         // format_time_relative_or_absolute directly). Leave it empty to avoid
@@ -2097,6 +2175,17 @@ fn update_cursor_values(app: &mut CanDataApp) {
                     }
                 }
             }
+        }
+    }
+
+    // Math signals have no frames; read their computed points instead.
+    for series in app.plot_full_data.iter() {
+        if !series.name.starts_with(MATH_ID_PREFIX) {
+            continue;
+        }
+        let count = series.points.partition_point(|p| p.time <= cursor);
+        if let Some(point) = count.checked_sub(1).map(|i| series.points[i]) {
+            values.insert(series.name.clone(), format_cursor_value(point.value, 3));
         }
     }
 

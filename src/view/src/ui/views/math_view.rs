@@ -6,11 +6,12 @@
 //! insert its name into the equation at the cursor.
 //!
 //! Math signals are stored in `library::math_signals`. Equations are checked
-//! as they are typed (`math::resolve`). Plotting comes in a later phase (see
-//! `docs/design/2026-11-15-math-signals-design.md`).
+//! as they are typed (`math::resolve`) and computed for the plot by
+//! `math::eval` (see `docs/design/2026-11-15-math-signals-design.md`).
 
 use crate::app::CanDataApp;
-use crate::library::math_signals::{MathSignal, save_math_signal_store};
+use crate::library::math_signals::{Interpolation, MathSignal, TimeMode, save_math_signal_store};
+use crate::ui::views::chart_view::MATH_ID_PREFIX;
 use crate::math::resolve::{Check, SignalIndex, check};
 use crate::models::SignalListMode;
 use gpui::prelude::*;
@@ -32,7 +33,14 @@ pub struct MathViewState {
     pub pending: Option<PendingMathAction>,
     /// Waiting for the user to confirm deleting the selected Math signal.
     pub confirm_delete: bool,
+    /// Time mode in the editor: resample (true) or sample and hold.
+    pub resample: bool,
+    pub interpolation: Interpolation,
+    pub rate_input: Option<Entity<InputState>>,
 }
+
+/// Resample rate shown when a Math signal doesn't resample yet.
+const DEFAULT_RATE_HZ: &str = "100";
 
 /// Something that would replace the editor contents.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,6 +71,26 @@ fn editor_values(app: &CanDataApp, cx: &App) -> Option<(String, String, String)>
     Some((read(&m.name_input)?, read(&m.unit_input)?, read(&m.equation_input)?))
 }
 
+/// The time mode set in the editor, or why the rate can't be used.
+fn editor_time_mode(app: &CanDataApp, cx: &App) -> Result<TimeMode, String> {
+    if !app.math.resample {
+        return Ok(TimeMode::SampleAndHold);
+    }
+    let text = app
+        .math
+        .rate_input
+        .as_ref()
+        .map(|i| i.read(cx).value().trim().to_string())
+        .unwrap_or_default();
+    match text.parse::<f64>() {
+        Ok(rate_hz) if rate_hz.is_finite() && rate_hz > 0.0 => {
+            Ok(TimeMode::Resample { rate_hz, interpolation: app.math.interpolation })
+        }
+        Ok(_) => Err("The resample rate must be more than 0 Hz".into()),
+        Err(_) => Err("The resample rate must be a number of Hz".into()),
+    }
+}
+
 /// True if the editor holds changes that are not saved.
 pub fn is_dirty(app: &CanDataApp, cx: &App) -> bool {
     let Some(signal) = app.math.selected.and_then(|i| app.math_store.signals.get(i)) else {
@@ -70,7 +98,7 @@ pub fn is_dirty(app: &CanDataApp, cx: &App) -> bool {
     };
     editor_values(app, cx).is_some_and(|(name, unit, equation)| {
         name.trim() != signal.name || unit.trim() != signal.unit || equation != signal.equation
-    })
+    }) || editor_time_mode(app, cx) != Ok(signal.time_mode)
 }
 
 /// Ask for an action that replaces the editor contents. With unsaved changes
@@ -109,13 +137,20 @@ fn perform(app: &mut CanDataApp, action: PendingMathAction, window: &mut Window,
 /// Fill the editor from the selected Math signal (or empty it).
 fn load_editor(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<CanDataApp>) {
     let signal = app.math.selected.and_then(|i| app.math_store.signals.get(i)).cloned();
-    let (name, unit, equation) = signal
-        .map(|s| (s.name, s.unit, s.equation))
+    let (name, unit, equation, time_mode) = signal
+        .map(|s| (s.name, s.unit, s.equation, s.time_mode))
         .unwrap_or_default();
+    let (resample, interpolation, rate) = match time_mode {
+        TimeMode::SampleAndHold => (false, Interpolation::Hold, DEFAULT_RATE_HZ.to_string()),
+        TimeMode::Resample { rate_hz, interpolation } => (true, interpolation, rate_hz.to_string()),
+    };
+    app.math.resample = resample;
+    app.math.interpolation = interpolation;
     for (input, value) in [
         (&app.math.name_input, name),
         (&app.math.unit_input, unit),
         (&app.math.equation_input, equation),
+        (&app.math.rate_input, rate),
     ] {
         if let Some(input) = input {
             input.update(cx, |state, cx| state.set_value(value, window, cx));
@@ -145,12 +180,47 @@ fn save(app: &mut CanDataApp, cx: &mut Context<CanDataApp>) {
         cx.notify();
         return;
     }
+    let time_mode = match editor_time_mode(app, cx) {
+        Ok(mode) => mode,
+        Err(e) => {
+            app.status_msg = format!("❌ {}", e).into();
+            cx.notify();
+            return;
+        }
+    };
     let signal = &mut app.math_store.signals[i];
-    signal.name = name.clone();
+    let old_name = std::mem::replace(&mut signal.name, name.clone());
     signal.unit = unit.trim().to_string();
     signal.equation = equation;
+    signal.time_mode = time_mode;
     persist(app, format!("Math signal {} saved", name));
+    if old_name != name {
+        rename_everywhere(app, &old_name, &name);
+    }
+    replot_if_plotted(app, &name);
     cx.notify();
+}
+
+/// After a rename, point the plot and the saved signal sets at the new name.
+fn rename_everywhere(app: &mut CanDataApp, old: &str, new: &str) {
+    let (old_id, new_id) = (format!("{}{}", MATH_ID_PREFIX, old), format!("{}{}", MATH_ID_PREFIX, new));
+    app.plot_windows.rename_signal(&mut app.plot_lanes, &old_id, &new_id);
+    for id in app.selected_signals.iter_mut().filter(|id| **id == old_id) {
+        *id = new_id.clone();
+    }
+    if app.signal_set_store.rename_math_signal(old, new) {
+        if let Err(e) = crate::library::save_signal_set_store(&app.signal_set_store, app.config_file_path.as_deref()) {
+            app.status_msg = format!("❌ {}", e).into();
+        }
+    }
+}
+
+/// Compute the plot again if it shows this Math signal.
+fn replot_if_plotted(app: &mut CanDataApp, name: &str) {
+    let id = format!("{}{}", MATH_ID_PREFIX, name);
+    if app.plot_windows.contains(&app.plot_lanes, &id) {
+        crate::ui::views::chart_view::extract_and_update_series_data(app);
+    }
 }
 
 /// Delete the selected Math signal.
@@ -162,6 +232,7 @@ fn delete(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<CanDataApp
     let removed = app.math_store.signals.remove(i);
     app.math.selected = None;
     persist(app, format!("Math signal {} deleted", removed.name));
+    replot_if_plotted(app, &removed.name);
     load_editor(app, window, cx);
     cx.notify();
 }
@@ -347,6 +418,11 @@ fn ensure_inputs(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<Can
         app.math.equation_input = Some(input);
         // The editor starts out showing whatever is selected.
         load_editor(app, window, cx);
+    }
+    if app.math.rate_input.is_none() {
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(DEFAULT_RATE_HZ));
+        redraw_on_change(&input, cx);
+        app.math.rate_input = Some(input);
     }
     if app.math.search_input.is_none() {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search signals / messages..."));
@@ -543,6 +619,73 @@ fn render_signal_list(
         )
 }
 
+/// A button in a group of choices; the chosen one is highlighted.
+fn choice_button(
+    id: &'static str,
+    label: &'static str,
+    chosen: bool,
+    on_click: impl Fn(&mut App) + 'static,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .px_2()
+        .py(px(2.))
+        .rounded(px(4.))
+        .border_1()
+        .border_color(if chosen { rgb(0x3b82f6) } else { rgb(0x3f3f46) })
+        .when(chosen, |el| el.bg(rgb(SELECTED_BG)))
+        .text_xs()
+        .text_color(rgb(TEXT))
+        .cursor_pointer()
+        .hover(|s| s.bg(rgb(0x27272a)))
+        .on_click(move |_, _, cx| on_click(cx))
+        .child(label)
+}
+
+/// The time mode row: sample and hold, or resample at a rate with hold or
+/// linear interpolation.
+fn render_time_mode(
+    resample: bool,
+    interpolation: Interpolation,
+    rate_input: Option<Entity<InputState>>,
+    view: Entity<CanDataApp>,
+) -> impl IntoElement {
+    let set = move |view: &Entity<CanDataApp>, f: fn(&mut MathViewState)| {
+        let view = view.clone();
+        move |cx: &mut App| {
+            view.update(cx, |app, cx| {
+                f(&mut app.math);
+                cx.notify();
+            })
+        }
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(div().w(px(40.)).text_xs().text_color(rgb(MUTED)).child("Time"))
+        .child(choice_button("math-hold-mode", "Sample and hold", !resample, set(&view, |m| m.resample = false)))
+        .child(choice_button("math-resample-mode", "Resample", resample, set(&view, |m| m.resample = true)))
+        .when(resample, |el| {
+            el.when_some(rate_input, |el, input| {
+                el.child(div().w(px(80.)).child(Input::new(&input).small()))
+            })
+            .child(div().text_xs().text_color(rgb(MUTED)).child("Hz"))
+            .child(choice_button(
+                "math-interp-hold",
+                "Hold",
+                interpolation == Interpolation::Hold,
+                set(&view, |m| m.interpolation = Interpolation::Hold),
+            ))
+            .child(choice_button(
+                "math-interp-linear",
+                "Linear",
+                interpolation == Interpolation::Linear,
+                set(&view, |m| m.interpolation = Interpolation::Linear),
+            ))
+        })
+}
+
 /// The list mark and status colour for a check: ✓ usable with the active
 /// library, ⚠ fine but not usable with it, ✗ can't be read.
 fn status_mark(check: &Check) -> (&'static str, Rgba) {
@@ -601,6 +744,9 @@ fn render_editor(
     let equation = equation_input.read(cx).value().to_string();
     let equation_check = check(&equation, index);
     let (_, status_color) = status_mark(&equation_check);
+    let time_mode = editor_time_mode(app, cx);
+    let (resample, interpolation) = (app.math.resample, app.math.interpolation);
+    let rate_input = app.math.rate_input.clone();
 
     let mut el = div().flex_1().min_h_0().flex().flex_col();
 
@@ -623,7 +769,18 @@ fn render_editor(
     } else if app.math.confirm_delete {
         let (view_delete, view_cancel) = (view.clone(), view.clone());
         el = el.child(confirm_bar(
-            format!("Delete {}? This cannot be undone.", signal.name),
+            {
+                let sets = app.signal_set_store.sets_using_math_signal(&signal.name);
+                if sets.is_empty() {
+                    format!("Delete {}? This cannot be undone.", signal.name)
+                } else {
+                    format!(
+                        "Delete {}? It is used in signal sets: {}. This cannot be undone.",
+                        signal.name,
+                        sets.join(", ")
+                    )
+                }
+            },
             vec![
                 small_button("math-confirm-delete", "Delete", true, move |window, cx| {
                     view_delete.update(cx, |app, cx| delete(app, window, cx));
@@ -640,7 +797,7 @@ fn render_editor(
 
     let label = |text: &'static str| div().text_xs().text_color(rgb(MUTED)).child(text);
 
-    let (view_revert, view_save) = (view.clone(), view);
+    let (view_revert, view_save) = (view.clone(), view.clone());
     el.child(
         div()
             .p_3()
@@ -681,6 +838,10 @@ fn render_editor(
                     .text_color(status_color)
                     .child(equation_check.summary(&equation)),
             )
+            .child(render_time_mode(resample, interpolation, rate_input, view.clone()))
+            .when_some(time_mode.clone().err(), |el, e| {
+                el.child(div().text_xs().text_color(rgb(0xf87171)).child(e))
+            })
             .child(
                 div()
                     .flex()
@@ -692,7 +853,7 @@ fn render_editor(
                             cx.notify();
                         });
                     }))
-                    .child(small_button("math-save", "Save", dirty && name_error.is_none() && !equation_check.is_error(), move |_, cx| {
+                    .child(small_button("math-save", "Save", dirty && name_error.is_none() && !equation_check.is_error() && time_mode.is_ok(), move |_, cx| {
                         view_save.update(cx, |app, cx| save(app, cx));
                     })),
             ),
