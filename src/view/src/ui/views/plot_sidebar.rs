@@ -665,6 +665,9 @@ pub fn build_set_dropdown_items(app: &CanDataApp) -> Vec<SetDropdownItem> {
     items
 }
 
+/// Height of the buttons in the sidebar's bottom bar.
+const BOTTOM_BUTTON_HEIGHT: f32 = 23.0;
+
 /// Render the signal selection sidebar: header + search box + virtualized list
 /// + bottom action bar with "Clear all" and "Plot N signals" buttons.
 pub fn render_signal_sidebar(
@@ -677,6 +680,10 @@ pub fn render_signal_sidebar(
     let item_count = items.len();
     let selected_count = app.selected_signals.len();
     let items_arc = std::sync::Arc::new(items);
+    let active_set = crate::controllers::signal_set_controller::active_set_status(app);
+    let modified_set = active_set
+        .as_ref()
+        .and_then(|(name, modified)| modified.then(|| name.clone()));
 
     div()
         .size_full()
@@ -685,10 +692,11 @@ pub fn render_signal_sidebar(
         .relative()
         .bg(rgb(0x0a0a0b))
         .child(
-            // Sidebar Header
+            // Sidebar Header, as tall as the plot toolbar beside it
             div()
                 .px_4()
-                .py_2()
+                .h(px(32.0))
+                .flex_none()
                 .bg(rgb(0x131314))
                 .border_b_1()
                 .border_color(rgb(0x27272a))
@@ -708,12 +716,9 @@ pub fn render_signal_sidebar(
                                 .child("Signals")
                         )
                         .when_some(
-                            app.active_signal_set.as_ref().and_then(|(lid, sname)| {
-                                if app.app_config.active_library_id.as_ref() == Some(lid) {
-                                    Some(sname.clone())
-                                } else {
-                                    None
-                                }
+                            active_set.as_ref().map(|(name, modified)| {
+                                // A dot marks changes that aren't saved to the set.
+                                if *modified { format!("{} ●", name) } else { name.clone() }
                             }),
                             |this, set_name| {
                                 this.child(
@@ -805,50 +810,87 @@ pub fn render_signal_sidebar(
                 // Inline rename input row
                 render_save_set_input_row(app, view.clone(), cx)
             } else if selected_count > 0 {
+                // Slim rows: with one row the bar is as tall as the header.
                 div()
-                    .p_2()
+                    .px_2()
+                    .py_1()
                     .bg(rgb(0x131314))
                     .border_t_1()
                     .border_color(rgb(0x27272a))
                     .flex()
-                    .gap_2()
+                    .flex_col()
+                    .gap_1()
+                    .when_some(modified_set.clone(), |this, set_name| {
+                        // Save the changes back into the loaded set.
+                        this.child(
+                            div()
+                                .h(px(BOTTOM_BUTTON_HEIGHT))
+                                .flex()
+                                .items_center()
+                                .px_3()
+                                .bg(rgb(0x2563eb))
+                                .rounded(px(4.0))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(rgb(0x3b82f6)))
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    crate::controllers::signal_set_controller::update_active_signal_set(this, cx);
+                                }))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(rgb(0xffffff))
+                                        .child(format!("Update \"{}\"", set_name))
+                                )
+                        )
+                    })
                     .child(
-                        // Clear all button
                         div()
-                            .px_3()
-                            .py_1p5()
-                            .bg(rgb(0x3f3f46))
-                            .rounded(px(4.0))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x52525b)))
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                this.clear_selected_signals(cx);
-                            }))
+                            .h(px(BOTTOM_BUTTON_HEIGHT))
+                            .flex()
+                            .gap_2()
                             .child(
+                                // Clear all button
                                 div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(0xffffff))
-                                    .child(format!("Clear all ({})", selected_count))
+                                    .px_3()
+                                    .flex()
+                                    .items_center()
+                                    .bg(rgb(0x3f3f46))
+                                    .rounded(px(4.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(0x52525b)))
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                        this.clear_selected_signals(cx);
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(0xffffff))
+                                            .child(format!("Clear all ({})", selected_count))
+                                    )
                             )
-                    )
-                    .child(
-                        // Save as signal set button (flex-1 to fill the space previously held by the Plot button)
-                        div()
-                            .flex_1()
-                            .px_3()
-                            .py_1p5()
-                            .bg(rgb(0x3f3f46))
-                            .rounded(px(4.0))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x52525b)))
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                this.show_save_set_input = true;
-                                this.pending_signal_set_name = Some(String::new());
-                                cx.notify();
-                            }))
                             .child(
-                                div().text_xs().text_color(rgb(0xffffff)).child("Save as signal set…")
+                                // Save as signal set button (flex-1 to fill the space previously held by the Plot button)
+                                div()
+                                    .flex_1()
+                                    .px_3()
+                                    .flex()
+                                    .items_center()
+                                    .bg(rgb(0x3f3f46))
+                                    .rounded(px(4.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(0x52525b)))
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                        this.show_save_set_input = true;
+                                        this.pending_signal_set_name = Some(String::new());
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        div().text_xs().text_color(rgb(0xffffff)).child(
+                                            if modified_set.is_some() { "Save as new set…" } else { "Save as signal set…" }
+                                        )
+                                    )
                             )
                     )
                     .into_any_element()

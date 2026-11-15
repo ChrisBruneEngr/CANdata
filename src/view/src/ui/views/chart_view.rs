@@ -416,7 +416,6 @@ pub fn add_signal_to_lane(app: &mut CanDataApp, lane: usize, signal_id: &str) {
     if !app.selected_signals.iter().any(|s| s == signal_id) {
         app.selected_signals.push(signal_id.to_string());
     }
-    app.active_signal_set = None;
     extract_and_update_series_data(app);
 }
 
@@ -425,7 +424,6 @@ fn remove_signal_from_lane(app: &mut CanDataApp, lane: usize, signal_id: &str) {
     app.plot_lanes.remove_signal(lane, signal_id);
     let lanes = &app.plot_lanes;
     app.selected_signals.retain(|signal| lanes.contains(signal));
-    app.active_signal_set = None;
     extract_and_update_series_data(app);
 }
 
@@ -434,7 +432,6 @@ fn delete_selected_lane(app: &mut CanDataApp) {
     app.plot_lanes.delete_selected();
     let lanes = &app.plot_lanes;
     app.selected_signals.retain(|signal| lanes.contains(signal));
-    app.active_signal_set = None;
     extract_and_update_series_data(app);
 }
 
