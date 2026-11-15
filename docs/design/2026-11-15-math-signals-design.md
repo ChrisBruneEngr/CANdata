@@ -174,6 +174,11 @@ Syntax is checked on its own (`parse`). Names are checked separately
 (`resolve`) against the active library, so an equation for another vehicle
 still parses and is shown with ⚠ instead of ✗.
 
+Only syntax errors (✗, including an empty equation) stop Save. Name problems
+(⚠) don't, because Math signals are global and an equation may be meant for
+another library. A name that is only wrong in capitals gets a hint:
+`Unknown signal 'motor_speed' (did you mean 'Motor_Speed'?)`.
+
 **Duplicate signal names.** With plain names, a name found in more than one
 message or channel of the active library cannot be resolved. It is reported as
 *ambiguous*, together with where it was found. Qualified names are left out on

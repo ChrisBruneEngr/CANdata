@@ -10,6 +10,7 @@ mod controllers;
 mod domain;
 mod handlers;
 mod library;
+mod math;
 mod models;
 mod plot_lanes;
 mod rendering;
