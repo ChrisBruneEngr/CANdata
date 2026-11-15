@@ -316,7 +316,7 @@ pub fn extract_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
 /// The Math group: every Math signal matching the search, at the top of the
 /// list. One that can't be computed with the active library is marked ⚠.
 fn math_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
-    use crate::math::resolve::{Check, SignalIndex, check};
+    use crate::math::resolve::{Check, SignalIndex, check_named};
     let filter_text = app.signal_filter_text.to_lowercase();
     let signals: Vec<_> = app
         .math_store
@@ -331,7 +331,7 @@ fn math_signal_items(app: &CanDataApp) -> Vec<SidebarItem> {
     let mut items = vec![SidebarItem::GroupHeader { name: "Math signals".into() }];
     for signal in signals {
         let id = format!("{}{}", super::chart_view::MATH_ID_PREFIX, signal.name);
-        let usable = matches!(check(&signal.equation, &index), Check::Ok { .. });
+        let usable = matches!(check_named(Some(&signal.name), &signal.equation, &index), Check::Ok { .. });
         items.push(SidebarItem::SignalItem {
             name: signal_label(&signal.name, &signal.unit),
             plot_color: plot_color(app, &id),

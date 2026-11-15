@@ -48,7 +48,7 @@ indicator, like Library. The view lives in `ui/views/math_view.rs`.
 │ │ ...                               │ │       Motor_Torque       │
 │ └───────────────────────────────────┘ │ ▸ CH2  Chassis           │
 │                                       │                          │
-│ Name [Motor_Power__]  Unit [kW__]     │ Functions   (phase 4)    │
+│ Name [Motor_Power__]  Unit [kW__]     │ Functions                │
 │ ┌───────────────────────────────────┐ │   abs(x)                 │
 │ │ Motor_Speed * Motor_Torque / 9549 │ │   sqrt(x)                │
 │ │                                   │ │   min(a, b)              │
@@ -77,7 +77,7 @@ indicator, like Library. The view lives in `ui/views/math_view.rs`.
   message, or one alphabetical list (shared names marked with channel and ID). It reuses the item building from `plot_sidebar.rs`
   (`extract_signal_items`) where it can. Double-clicking a signal inserts its
   plain name at the editor cursor.
-- **Functions list (right, phase 4).** Double-clicking a function inserts
+- **Functions list (right).** Double-clicking a function inserts
   `name()` and puts the cursor between the brackets.
 - **No active library.** The browser shows a hint to activate one. Math signals
   can still be edited, but every equation is marked ⚠.
@@ -123,27 +123,38 @@ Only the equation text is saved. It is parsed again on load, so a file edited
 by hand, or one from a newer version, is still checked.
 
 **Name rules.** A Math signal name must be an identifier, must be unique among
-Math signals (ignoring case), and must not be a function name. It may match a
-decoded signal name. In that case the plot sidebar tells them apart by group
-(see below). Equations always refer to decoded signals until phase 5.
+Math signals (ignoring case), and must not be a function name (ignoring
+case). It may match a decoded signal name, but an equation that uses that name
+is then reported as ambiguous until the Math signal is renamed.
+
+**Math of Math.** An equation may use other Math signals by name; the signal
+browser lists them under "Math signals". Checking follows them: a Math input
+with a problem is reported ("Math signal 'B' has a problem: ..."), and so is a
+loop, with its path ("Loop: A → B → C → A"). Evaluation computes each Math
+input first, once per plot refresh, and uses its points like a decoded
+signal's. Renaming a Math signal rewrites the equations that use it; deleting
+one names them in the confirmation. Saving or importing recomputes the plot if
+any Math signal is plotted.
 
 ## Equation language
 
 Grammar, lowest precedence first:
 
 ```
+compare := expr   (CMP expr)?            // at most one comparison
 expr    := term   (('+' | '-') term)*
 term    := unary  (('*' | '/') unary)*
 unary   := '-' unary | power
 power   := primary ('^' unary)?          // right-associative: 2^3^2 = 2^9
-primary := NUMBER | NAME | NAME '(' args? ')' | '(' expr ')'
-args    := expr (',' expr)*
+primary := NUMBER | NAME | NAME '(' args? ')' | '(' compare ')'
+args    := compare (',' compare)*
+CMP     := '<' | '<=' | '>' | '>=' | '==' | '!='
 NUMBER  := 12 | 1.5 | .5 | 1e-3 | 2.5E+4
 NAME    := [A-Za-z_][A-Za-z0-9_]*
 ```
 
-Whitespace is ignored. Comparisons (`< <= > >= == !=`) and `if(cond, a, b)`
-are added in phase 4, with comparisons at a lower precedence than `+ -`.
+Whitespace is ignored. A comparison gives 1 when true and 0 when false; a
+single `=` is refused with a hint to use `==`.
 
 The parser (`math/parser.rs`) produces an AST:
 
@@ -203,8 +214,8 @@ interpolation:
 
 - *Hold:* the last value at or before the grid time.
 - *Linear:* a straight line between the samples either side of the grid time.
-  After an input's last sample, its last value is held. This gives evenly spaced output, which phase 4's
-derivative and integral functions will need. The rate must be > 0. The editor
+  After an input's last sample, its last value is held. This gives evenly spaced output, which suits the
+`derivative`, `integral` and `lowpass` functions. The rate must be > 0. The editor
 warns when a rate would produce more than about 10 million points over the
 loaded log.
 
@@ -235,25 +246,56 @@ evaluates.
 
 ## Export and import
 
-The ⇅ menu on the Math screen offers **Export…** and **Import…**, using the
+**Import…** and **Export…** buttons in the Math signal list header use the
 native file dialogs (`rfd`), as library export does.
 
-- **Export** writes the selected Math signals (or all of them) to one `.cvmath`
-  file. It is a JSON document with a format tag and version, like `.cvlib`:
+- **Export** writes every Math signal to one `.cvmath` file. It is a JSON
+  document with a format tag and version, like `.cvlib`:
 
   ```json
-  { "format": "candata-math", "version": 1,
+  { "format": "candata-math", "format_version": 1,
+    "exported_at": "2026-11-15T10:00:00+01:00",
     "signals": [ { "name": "Motor_Power", "unit": "kW",
                    "equation": "Motor_Speed * Motor_Torque / 9549",
                    "time_mode": { "mode": "SampleAndHold" } } ] }
   ```
 
-- **Import** reads a `.cvmath` file and adds its signals. A signal whose name
-  is already used is offered as *Replace*, *Keep both* (imported as
-  `Name_2`), or *Skip*. Imported equations are checked like any other.
-- The code lives in `library/math_signals.rs` (file format) and
-  `app/commands/math_transfer.rs` (dialogs), mirroring `bundle.rs` and
+- **Import** reads a `.cvmath` file and adds its signals. A file with another
+  format tag, a newer version, an invalid name or the same name twice is
+  refused. If some names are already used (ignoring case), a bar lists them
+  and offers, for all of them at once: *Replace* (keeps the existing
+  spelling, so plots and sets still match), *Keep both* (imported as
+  `Name_2`, `Name_3`, ...), *Skip*, or *Cancel import*. Imported equations
+  are checked like any other, and a replaced Math signal that is plotted is
+  computed again.
+- The code lives in `library/math_signals.rs` (file format and import rules)
+  and `app/commands/math_transfer.rs` (dialogs), mirroring `bundle.rs` and
   `library_transfer.rs`.
+
+## Functions
+
+Listed under the signal browser; double-clicking one inserts `name()` with
+the cursor between the brackets (`math/functions.rs`).
+
+| Function                       | Gives                                         |
+| ------------------------------ | --------------------------------------------- |
+| `abs sqrt exp ln log10 round`  | the usual value of x                          |
+| `sin cos tan`                  | trigonometry, x in radians                    |
+| `min(a, b, ...)`, `max(...)`   | smallest / largest of two or more values      |
+| `clamp(x, low, high)`          | x kept between low and high                   |
+| `if(condition, then, else)`    | `then` where condition is not 0, else `else`  |
+| `derivative(x)`                | change per second from the previous point     |
+| `integral(x)`                  | running total by the trapezoid rule, from 0   |
+| `lowpass(x, seconds)`          | first-order filter with that time constant    |
+
+Comparisons `< <= > >= == !=` give 1 or 0 and sit below `+ -`; only one is
+allowed without brackets. Checking reports unknown functions (with a hint for
+capitals) and wrong numbers of values.
+
+The equation is evaluated over the whole series at once (`eval_series`), so
+the time-based functions see earlier points. They use the spacing of the
+output points: with sample-and-hold that is uneven, so for `derivative`,
+`integral` and `lowpass` a resample rate usually gives cleaner results.
 
 ## Phases
 
@@ -271,11 +313,11 @@ native file dialogs (`rfd`), as library export does.
    late-starting inputs, resample grid edges, hold and linear, NaN dropping).
 4. **Export and import.** `.cvmath` files, with name conflict handling. Unit
    tests for round trip, bad files and conflicts.
-5. **Functions.** The functions list. `abs sqrt exp ln log10 sin cos tan min
-   max clamp`, comparisons and `if`. Then the time-based functions
-   (`derivative`, `integral`, `lowpass`), which use the point history.
-6. **Math of Math (optional).** Equations may name other Math signals. Evaluate
-   in dependency order, and report loops (`A` uses `B` uses `A`) as an error.
+5. **Functions.** The functions list, `abs sqrt exp ln log10 sin cos tan
+   round min max clamp`, comparisons and `if`, and the time-based functions
+   `derivative`, `integral` and `lowpass`.
+6. **Math of Math.** Equations may name other Math signals (see *Data model*).
+   Inputs are evaluated first; loops are reported with their path.
 
 ## Settled questions
 

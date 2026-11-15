@@ -3,13 +3,17 @@
 //! Grammar, lowest precedence first:
 //!
 //! ```text
+//! compare := expr   (CMP expr)?            // at most one comparison
 //! expr    := term   (('+' | '-') term)*
 //! term    := unary  (('*' | '/') unary)*
 //! unary   := '-' unary | power
 //! power   := primary ('^' unary)?          // right-associative: 2^3^2 = 2^9
-//! primary := NUMBER | NAME | NAME '(' args? ')' | '(' expr ')'
-//! args    := expr (',' expr)*
+//! primary := NUMBER | NAME | NAME '(' args? ')' | '(' compare ')'
+//! args    := compare (',' compare)*
+//! CMP     := '<' | '<=' | '>' | '>=' | '==' | '!='
 //! ```
+//!
+//! A comparison gives 1 when true and 0 when false.
 //!
 //! Every error carries the character range it refers to, so the editor can
 //! say where it is.
@@ -35,6 +39,12 @@ pub enum Op {
     Mul,
     Div,
     Pow,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
 }
 
 impl Expr {
@@ -49,15 +59,28 @@ impl Expr {
         names
     }
 
-    /// Every function name used, with its range, in the order written.
-    pub fn function_names(&self) -> Vec<(&str, Range<usize>)> {
-        let mut names = Vec::new();
-        self.visit_names(&mut |name, range, is_call| {
-            if is_call {
-                names.push((name, range));
+    /// Every function call, as (name, name range, number of values), in the
+    /// order written.
+    pub fn calls(&self) -> Vec<(&str, Range<usize>, usize)> {
+        let mut calls = Vec::new();
+        fn walk<'a>(e: &'a Expr, calls: &mut Vec<(&'a str, Range<usize>, usize)>) {
+            match e {
+                Expr::Number(_) | Expr::Signal(..) => {}
+                Expr::Neg(e) => walk(e, calls),
+                Expr::Binary(_, a, b) => {
+                    walk(a, calls);
+                    walk(b, calls);
+                }
+                Expr::Call(name, range, args) => {
+                    calls.push((name.as_str(), range.clone(), args.len()));
+                    for arg in args {
+                        walk(arg, calls);
+                    }
+                }
             }
-        });
-        names
+        }
+        walk(self, &mut calls);
+        calls
     }
 
     fn visit_names<'a>(&'a self, f: &mut impl FnMut(&'a str, Range<usize>, bool)) {
@@ -78,25 +101,16 @@ impl Expr {
         }
     }
 
-    /// Evaluate with the given signal values. Functions are not known yet and
-    /// give NaN.
+    /// Evaluate at one moment with the given signal values (tests only; the
+    /// app evaluates whole series with `math::eval`).
+    #[cfg(test)]
     pub fn eval(&self, value_of: &dyn Fn(&str) -> f64) -> f64 {
-        match self {
-            Expr::Number(n) => *n,
-            Expr::Signal(name, _) => value_of(name),
-            Expr::Neg(e) => -e.eval(value_of),
-            Expr::Binary(op, a, b) => {
-                let (a, b) = (a.eval(value_of), b.eval(value_of));
-                match op {
-                    Op::Add => a + b,
-                    Op::Sub => a - b,
-                    Op::Mul => a * b,
-                    Op::Div => a / b,
-                    Op::Pow => a.powf(b),
-                }
-            }
-            Expr::Call(..) => f64::NAN,
-        }
+        let values: std::collections::HashMap<&str, Vec<f64>> = self
+            .signal_names()
+            .into_iter()
+            .map(|(name, _)| (name, vec![value_of(name)]))
+            .collect();
+        crate::math::eval::eval_series(self, &[0.0], &values)[0]
     }
 }
 
@@ -126,6 +140,27 @@ pub fn position_text(source: &str, offset: usize) -> String {
     }
 }
 
+/// True if `source` uses the name `name` as a signal (not as a function).
+pub fn uses_name(source: &str, name: &str) -> bool {
+    parse(source).is_ok_and(|expr| expr.signal_names().iter().any(|(n, _)| *n == name))
+}
+
+/// `source` with every use of signal `old` changed to `new`, or `None` if it
+/// doesn't use `old` (or can't be read). Everything else is kept as written.
+pub fn rename_signal(source: &str, old: &str, new: &str) -> Option<String> {
+    let expr = parse(source).ok()?;
+    let ranges: Vec<Range<usize>> =
+        expr.signal_names().into_iter().filter(|(n, _)| *n == old).map(|(_, r)| r).collect();
+    if ranges.is_empty() {
+        return None;
+    }
+    let mut chars: Vec<char> = source.chars().collect();
+    for range in ranges.into_iter().rev() {
+        chars.splice(range, new.chars());
+    }
+    Some(chars.into_iter().collect())
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     Num(f64),
@@ -138,6 +173,7 @@ enum Tok {
     LParen,
     RParen,
     Comma,
+    Cmp(Op),
 }
 
 impl Tok {
@@ -153,6 +189,14 @@ impl Tok {
             Tok::LParen => "'('".into(),
             Tok::RParen => "')'".into(),
             Tok::Comma => "','".into(),
+            Tok::Cmp(op) => format!("'{}'", match op {
+                Op::Lt => "<",
+                Op::Le => "<=",
+                Op::Gt => ">",
+                Op::Ge => ">=",
+                Op::Eq => "==",
+                _ => "!=",
+            }),
         }
     }
 }
@@ -184,9 +228,21 @@ fn tokenize(source: &str) -> Result<Vec<Token>, ParseError> {
             ',' => Some(Tok::Comma),
             _ => None,
         };
+        let next_is_eq = chars.get(i + 1) == Some(&'=');
+        let compare = match c {
+            '<' => Some(if next_is_eq { Op::Le } else { Op::Lt }),
+            '>' => Some(if next_is_eq { Op::Ge } else { Op::Gt }),
+            '=' if next_is_eq => Some(Op::Eq),
+            '!' if next_is_eq => Some(Op::Ne),
+            '=' => return Err(ParseError::new("Use == to compare; a single = is not allowed", start..start + 1)),
+            _ => None,
+        };
         if let Some(tok) = single {
             i += 1;
             tokens.push(Token { tok, range: start..i });
+        } else if let Some(op) = compare {
+            i += if matches!(op, Op::Lt | Op::Gt) { 1 } else { 2 };
+            tokens.push(Token { tok: Tok::Cmp(op), range: start..i });
         } else if c.is_ascii_digit() || (c == '.' && chars.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
             while i < chars.len() && chars[i].is_ascii_digit() {
                 i += 1;
@@ -237,7 +293,7 @@ pub fn parse(source: &str) -> Result<Expr, ParseError> {
         return Err(ParseError::new("The equation is empty", 0..0));
     }
     let mut parser = Parser { tokens, pos: 0, end };
-    let expr = parser.expr()?;
+    let expr = parser.compare()?;
     if let Some(token) = parser.peek() {
         let message = match token.tok {
             Tok::RParen => "')' has no matching '('".to_string(),
@@ -268,6 +324,22 @@ impl Parser {
         let token = self.tokens.get(self.pos);
         self.pos += 1;
         token
+    }
+
+    fn compare(&mut self) -> Result<Expr, ParseError> {
+        let left = self.expr()?;
+        let Some(Tok::Cmp(op)) = self.peek_tok().cloned() else {
+            return Ok(left);
+        };
+        self.pos += 1;
+        let right = self.expr()?;
+        if let Some(token) = self.peek().filter(|t| matches!(t.tok, Tok::Cmp(_))) {
+            return Err(ParseError::new(
+                "Only one comparison at a time; use brackets or if()",
+                token.range.clone(),
+            ));
+        }
+        Ok(Expr::Binary(op, Box::new(left), Box::new(right)))
     }
 
     fn expr(&mut self) -> Result<Expr, ParseError> {
@@ -358,7 +430,7 @@ impl Parser {
             }
             Tok::LParen => {
                 self.pos += 1;
-                let inner = self.expr()?;
+                let inner = self.compare()?;
                 self.close(&range)?;
                 Ok(inner)
             }
@@ -374,7 +446,7 @@ impl Parser {
             return Ok(args);
         }
         loop {
-            args.push(self.expr()?);
+            args.push(self.compare()?);
             if self.peek_tok() == Some(&Tok::Comma) {
                 self.pos += 1;
                 continue;
@@ -441,6 +513,21 @@ mod tests {
     }
 
     #[test]
+    fn comparisons() {
+        assert_eq!(eval("a < b"), 1.0);
+        assert_eq!(eval("a >= b"), 0.0);
+        assert_eq!(eval("a + 1 == b"), 1.0);
+        assert_eq!(eval("a != 2"), 0.0);
+        assert_eq!(eval("(a > 1) * 10"), 10.0);
+        assert_eq!(eval("a <= 2"), 1.0);
+        let e = err("a < b < 3");
+        assert_eq!((e.message.as_str(), e.range), ("Only one comparison at a time; use brackets or if()", 6..7));
+        assert_eq!(err("a = b").message, "Use == to compare; a single = is not allowed");
+        assert_eq!(err("a ! b").message, "Unexpected character '!'");
+        assert_eq!(err("a <").message, "A value is missing after '<'");
+    }
+
+    #[test]
     fn numbers() {
         for (text, value) in [("12", 12.0), ("1.5", 1.5), (".5", 0.5), ("1.", 1.0), ("1e-3", 0.001), ("2.5E+4", 25000.0), ("3e2", 300.0)] {
             assert_eq!(eval(text), value, "{text}");
@@ -457,8 +544,8 @@ mod tests {
     #[test]
     fn calls_parse() {
         let expr = parse("max(a, b * 2) + f()").unwrap();
-        let functions: Vec<_> = expr.function_names().into_iter().map(|(n, _)| n).collect();
-        assert_eq!(functions, ["max", "f"]);
+        let calls: Vec<_> = expr.calls().into_iter().map(|(n, _, count)| (n, count)).collect();
+        assert_eq!(calls, [("max", 2), ("f", 0)]);
         let signals: Vec<_> = expr.signal_names().into_iter().map(|(n, r)| (n, r)).collect();
         assert_eq!(signals, [("a", 4..5), ("b", 7..8)]);
     }
@@ -506,6 +593,27 @@ mod tests {
         assert_eq!(e.range, 0..1);
         let e = err("a + µ");
         assert_eq!(e.range, 4..5);
+    }
+
+    #[test]
+    fn rename_and_uses() {
+        assert_eq!(
+            rename_signal("Power * 2 + max(Power,
+ Power_2) + µ_Power", "Power", "P"),
+            None, // 'µ' can't be read, so nothing is renamed
+        );
+        assert_eq!(
+            rename_signal("Power*2 + max(Power,
+ Power_2)", "Power", "Motor_Power").as_deref(),
+            Some("Motor_Power*2 + max(Motor_Power,
+ Power_2)")
+        );
+        assert_eq!(rename_signal("power + 1", "Power", "P"), None);
+        // Function names are not signals.
+        assert_eq!(rename_signal("abs(x)", "abs", "y"), None);
+        assert!(uses_name("a + b * 2", "b"));
+        assert!(!uses_name("abs(a)", "abs"));
+        assert!(!uses_name("a +", "a"));
     }
 
     #[test]

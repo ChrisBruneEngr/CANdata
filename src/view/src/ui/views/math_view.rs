@@ -10,9 +10,11 @@
 //! `math::eval` (see `docs/design/2026-11-15-math-signals-design.md`).
 
 use crate::app::CanDataApp;
-use crate::library::math_signals::{Interpolation, MathSignal, TimeMode, save_math_signal_store};
+use crate::library::math_signals::{
+    ConflictChoice, Interpolation, MathSignal, TimeMode, save_math_signal_store,
+};
 use crate::ui::views::chart_view::MATH_ID_PREFIX;
-use crate::math::resolve::{Check, SignalIndex, check};
+use crate::math::resolve::{Check, SignalIndex, check, check_named};
 use crate::models::SignalListMode;
 use gpui::prelude::*;
 use gpui::*;
@@ -37,6 +39,11 @@ pub struct MathViewState {
     pub resample: bool,
     pub interpolation: Interpolation,
     pub rate_input: Option<Entity<InputState>>,
+    /// Imported Math signals waiting for the user to settle names already used.
+    pub pending_import: Option<Vec<MathSignal>>,
+    /// Refill the editor from the store on the next render (set where there
+    /// is no window, e.g. after an import).
+    pub reload_editor: bool,
 }
 
 /// Resample rate shown when a Math signal doesn't resample yet.
@@ -197,7 +204,7 @@ fn save(app: &mut CanDataApp, cx: &mut Context<CanDataApp>) {
     if old_name != name {
         rename_everywhere(app, &old_name, &name);
     }
-    replot_if_plotted(app, &name);
+    replot_if_math_plotted(app);
     cx.notify();
 }
 
@@ -208,6 +215,17 @@ fn rename_everywhere(app: &mut CanDataApp, old: &str, new: &str) {
     for id in app.selected_signals.iter_mut().filter(|id| **id == old_id) {
         *id = new_id.clone();
     }
+    // Other Math signals that use it.
+    let mut changed = false;
+    for signal in &mut app.math_store.signals {
+        if let Some(equation) = crate::math::parser::rename_signal(&signal.equation, old, new) {
+            signal.equation = equation;
+            changed = true;
+        }
+    }
+    if changed {
+        persist(app, format!("Math signal {} renamed; equations that use it updated", new));
+    }
     if app.signal_set_store.rename_math_signal(old, new) {
         if let Err(e) = crate::library::save_signal_set_store(&app.signal_set_store, app.config_file_path.as_deref()) {
             app.status_msg = format!("❌ {}", e).into();
@@ -215,10 +233,11 @@ fn rename_everywhere(app: &mut CanDataApp, old: &str, new: &str) {
     }
 }
 
-/// Compute the plot again if it shows this Math signal.
-fn replot_if_plotted(app: &mut CanDataApp, name: &str) {
-    let id = format!("{}{}", MATH_ID_PREFIX, name);
-    if app.plot_windows.contains(&app.plot_lanes, &id) {
+/// Compute the plot again if it shows any Math signal, since Math signals
+/// can use each other.
+pub fn replot_if_math_plotted(app: &mut CanDataApp) {
+    let plotted = app.plot_windows.plotted_signals(&app.plot_lanes, usize::MAX);
+    if plotted.iter().any(|id| id.starts_with(MATH_ID_PREFIX)) {
         crate::ui::views::chart_view::extract_and_update_series_data(app);
     }
 }
@@ -232,7 +251,7 @@ fn delete(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<CanDataApp
     let removed = app.math_store.signals.remove(i);
     app.math.selected = None;
     persist(app, format!("Math signal {} deleted", removed.name));
-    replot_if_plotted(app, &removed.name);
+    replot_if_math_plotted(app);
     load_editor(app, window, cx);
     cx.notify();
 }
@@ -255,6 +274,23 @@ fn insert_into_equation(app: &mut CanDataApp, text: &str, window: &mut Window, c
         input.update(cx, |state, cx| {
             state.insert(text, window, cx);
             state.focus(window, cx);
+        });
+    }
+    cx.notify();
+}
+
+/// Insert `name()` into the equation with the cursor between the brackets.
+fn insert_function(app: &mut CanDataApp, name: &str, window: &mut Window, cx: &mut Context<CanDataApp>) {
+    if app.math.selected.is_none() {
+        return;
+    }
+    if let Some(input) = &app.math.equation_input {
+        let text = format!("{}()", name);
+        input.update(cx, |state, cx| {
+            state.insert(text, window, cx);
+            let mut position = state.cursor_position();
+            position.character = position.character.saturating_sub(1);
+            state.set_cursor_position(position, window, cx);
         });
     }
     cx.notify();
@@ -319,10 +355,32 @@ fn browser_entries(app: &CanDataApp, filter: &str) -> Vec<BrowserEntry> {
 /// signal list: grouped by channel and message, or one alphabetical list.
 pub fn browser_rows(app: &CanDataApp, filter: &str) -> Vec<BrowserRow> {
     let entries = browser_entries(app, filter);
-    match app.app_config.signal_list_mode {
+    let mut rows = math_rows(app, filter);
+    rows.extend(match app.app_config.signal_list_mode {
         SignalListMode::Grouped => grouped_rows(entries),
         SignalListMode::Alphabetical => alphabetical_rows(entries),
+    });
+    rows
+}
+
+/// The other Math signals matching `filter`, under their own heading, so
+/// they can be used as inputs.
+fn math_rows(app: &CanDataApp, filter: &str) -> Vec<BrowserRow> {
+    let filter = filter.trim().to_lowercase();
+    let editing = app.math.selected.and_then(|i| app.math_store.signals.get(i)).map(|s| s.name.as_str());
+    let mut signals: Vec<_> = app
+        .math_store
+        .signals
+        .iter()
+        .filter(|s| Some(s.name.as_str()) != editing && s.name.to_lowercase().contains(&filter))
+        .collect();
+    if signals.is_empty() {
+        return Vec::new();
     }
+    signals.sort_by_key(|s| s.name.to_lowercase());
+    let mut rows = vec![BrowserRow::Channel("Math signals".into())];
+    rows.extend(signals.into_iter().map(|s| BrowserRow::Signal { name: s.name.clone(), unit: s.unit.clone(), note: None }));
+    rows
 }
 
 fn grouped_rows(entries: Vec<BrowserEntry>) -> Vec<BrowserRow> {
@@ -424,6 +482,10 @@ fn ensure_inputs(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<Can
         redraw_on_change(&input, cx);
         app.math.rate_input = Some(input);
     }
+    if std::mem::take(&mut app.math.reload_editor) {
+        app.math.selected = app.math.selected.filter(|i| *i < app.math_store.signals.len());
+        load_editor(app, window, cx);
+    }
     if app.math.search_input.is_none() {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search signals / messages..."));
         redraw_on_change(&input, cx);
@@ -522,7 +584,15 @@ fn render_signal_list(
 
     let view_new = view.clone();
     let view_delete = view.clone();
+    let (view_import, view_export) = (view.clone(), view.clone());
+    let has_signals = !app.math_store.signals.is_empty();
     let header = section_header("Math signals")
+        .child(small_button("math-import", "Import…", true, move |_, cx| {
+            view_import.update(cx, |app, cx| app.import_math_signals_file(cx));
+        }))
+        .child(small_button("math-export", "Export…", has_signals, move |_, cx| {
+            view_export.update(cx, |app, cx| app.export_math_signals_file(cx));
+        }))
         .child(small_button("math-new", "New", true, move |window, cx| {
             view_new.update(cx, |app, cx| request(app, PendingMathAction::New, window, cx));
         }))
@@ -542,7 +612,7 @@ fn render_signal_list(
         .map(|(i, signal)| {
             let is_selected = selected == Some(i);
             let view = view.clone();
-            let (mark, mark_color) = status_mark(&check(&signal.equation, index));
+            let (mark, mark_color) = status_mark(&check_named(Some(&signal.name), &signal.equation, index));
             div()
                 .id(("math-row", i))
                 .px_3()
@@ -599,6 +669,7 @@ fn render_signal_list(
         .border_b_1()
         .border_color(rgb(BORDER))
         .child(header)
+        .when_some(render_import_conflicts(app, view.clone()), |el, bar| el.child(bar))
         .child(
             div()
                 .id("math-signal-list")
@@ -696,6 +767,46 @@ fn status_mark(check: &Check) -> (&'static str, Rgba) {
     }
 }
 
+/// The bar asking what to do with imported Math signals whose names are
+/// already used, while an import waits for that.
+fn render_import_conflicts(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<Div> {
+    let incoming = app.math.pending_import.as_ref()?;
+    let conflicts = app.math_store.conflicts(incoming);
+    let message = if conflicts.len() == 1 {
+        format!("A Math signal named {} already exists.", conflicts[0])
+    } else {
+        format!("These Math signals already exist: {}.", conflicts.join(", "))
+    };
+    let choose = |id: &'static str, label: &'static str, choice: ConflictChoice| {
+        let view = view.clone();
+        small_button(id, label, true, move |_, cx| {
+            view.update(cx, |app, cx| {
+                if let Some(signals) = app.math.pending_import.take() {
+                    app.apply_math_import(signals, choice);
+                }
+                cx.notify();
+            });
+        })
+    };
+    let view_cancel = view.clone();
+    Some(confirm_bar(
+        message,
+        vec![
+            choose("math-import-replace", "Replace", ConflictChoice::Replace),
+            choose("math-import-keep", "Keep both", ConflictChoice::KeepBoth),
+            choose("math-import-skip", "Skip", ConflictChoice::Skip),
+            small_button("math-import-cancel", "Cancel import", true, move |_, cx| {
+                view_cancel.update(cx, |app, cx| {
+                    app.math.pending_import = None;
+                    app.status_msg = "Import cancelled".into();
+                    cx.notify();
+                });
+            }),
+        ],
+    )
+    .mb_2())
+}
+
 /// A one-line bar asking the user to confirm something.
 fn confirm_bar(message: String, buttons: Vec<Stateful<Div>>) -> Div {
     div()
@@ -742,7 +853,7 @@ fn render_editor(
     let dirty = is_dirty(app, cx);
     let name_error = name_error(app, cx);
     let equation = equation_input.read(cx).value().to_string();
-    let equation_check = check(&equation, index);
+    let equation_check = check_named(Some(&signal.name), &equation, index);
     let (_, status_color) = status_mark(&equation_check);
     let time_mode = editor_time_mode(app, cx);
     let (resample, interpolation) = (app.math.resample, app.math.interpolation);
@@ -771,15 +882,21 @@ fn render_editor(
         el = el.child(confirm_bar(
             {
                 let sets = app.signal_set_store.sets_using_math_signal(&signal.name);
-                if sets.is_empty() {
-                    format!("Delete {}? This cannot be undone.", signal.name)
-                } else {
-                    format!(
-                        "Delete {}? It is used in signal sets: {}. This cannot be undone.",
-                        signal.name,
-                        sets.join(", ")
-                    )
+                let users: Vec<&str> = app
+                    .math_store
+                    .signals
+                    .iter()
+                    .filter(|s| s.name != signal.name && crate::math::parser::uses_name(&s.equation, &signal.name))
+                    .map(|s| s.name.as_str())
+                    .collect();
+                let mut message = format!("Delete {}?", signal.name);
+                if !users.is_empty() {
+                    message += &format!(" Math signals {} use it.", users.join(", "));
                 }
+                if !sets.is_empty() {
+                    message += &format!(" It is in signal sets: {}.", sets.join(", "));
+                }
+                message + " This cannot be undone."
             },
             vec![
                 small_button("math-confirm-delete", "Delete", true, move |window, cx| {
@@ -872,6 +989,7 @@ fn render_browser(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl 
     let no_channels = app.dbc_channels.is_empty() && app.ldf_channels.is_empty();
     let can_insert = app.math.selected.is_some();
     let grouped = app.app_config.signal_list_mode == SignalListMode::Grouped;
+    let view_for_functions = view.clone();
 
     let body = if no_channels {
         div()
@@ -921,6 +1039,58 @@ fn render_browser(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl 
                 .child("Double-click a signal to insert it into the equation."),
         )
         .child(div().flex_1().min_h_0().child(body))
+        .child(render_functions(can_insert, view_for_functions))
+}
+
+/// The Functions list under the signal browser. Double-click one to insert
+/// it into the equation.
+fn render_functions(can_insert: bool, view: Entity<CanDataApp>) -> impl IntoElement {
+    let rows = crate::math::functions::FUNCTIONS.iter().map(|function| {
+        let view = view.clone();
+        let name = function.name;
+        div()
+            .px_3()
+            .h(px(22.))
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_xs()
+            .when(can_insert, |el| {
+                el.cursor_pointer()
+                    .hover(|s| s.bg(rgb(HOVER_BG)))
+                    .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                        if event.click_count == 2 {
+                            view.update(cx, |app, cx| insert_function(app, name, window, cx));
+                        }
+                    })
+            })
+            .child(div().flex_shrink_0().text_color(rgb(TEXT)).child(function.signature()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(rgb(MUTED))
+                    .child(function.description),
+            )
+    });
+    div()
+        .h(px(280.))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .border_t_1()
+        .border_color(rgb(BORDER))
+        .child(section_header("Functions"))
+        .child(
+            div()
+                .px_3()
+                .py_1()
+                .text_xs()
+                .text_color(rgb(MUTED))
+                .child("Double-click to insert. Compare with < <= > >= == != (true is 1, false is 0)."),
+        )
+        .child(div().id("math-functions").flex_1().min_h_0().overflow_y_scroll().children(rows))
 }
 
 fn render_browser_row(
