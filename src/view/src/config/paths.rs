@@ -9,6 +9,7 @@
 //! ├── candata.exe
 //! ├── multi_channel_config.json   channel mappings + library definitions
 //! ├── signal_sets.json            saved plot signal sets
+//! ├── math_signals.json           Math signal equations (global)
 //! └── libraries/                  copies of each library's DBC/LDF files
 //!     └── <library>/<version>/<channel>/<file>
 //! ```

@@ -4,6 +4,7 @@
 
 mod storage;
 pub mod bundle;
+pub mod math_signals;
 pub mod signal_sets;
 
 pub use storage::{
