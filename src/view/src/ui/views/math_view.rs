@@ -10,7 +10,9 @@
 //! `math::eval` (see `docs/design/2026-11-15-math-signals-design.md`).
 
 use crate::app::CanDataApp;
-use crate::library::math_signals::{Interpolation, MathSignal, TimeMode, save_math_signal_store};
+use crate::library::math_signals::{
+    ConflictChoice, Interpolation, MathSignal, TimeMode, save_math_signal_store,
+};
 use crate::ui::views::chart_view::MATH_ID_PREFIX;
 use crate::math::resolve::{Check, SignalIndex, check};
 use crate::models::SignalListMode;
@@ -37,6 +39,11 @@ pub struct MathViewState {
     pub resample: bool,
     pub interpolation: Interpolation,
     pub rate_input: Option<Entity<InputState>>,
+    /// Imported Math signals waiting for the user to settle names already used.
+    pub pending_import: Option<Vec<MathSignal>>,
+    /// Refill the editor from the store on the next render (set where there
+    /// is no window, e.g. after an import).
+    pub reload_editor: bool,
 }
 
 /// Resample rate shown when a Math signal doesn't resample yet.
@@ -424,6 +431,10 @@ fn ensure_inputs(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<Can
         redraw_on_change(&input, cx);
         app.math.rate_input = Some(input);
     }
+    if std::mem::take(&mut app.math.reload_editor) {
+        app.math.selected = app.math.selected.filter(|i| *i < app.math_store.signals.len());
+        load_editor(app, window, cx);
+    }
     if app.math.search_input.is_none() {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search signals / messages..."));
         redraw_on_change(&input, cx);
@@ -522,7 +533,15 @@ fn render_signal_list(
 
     let view_new = view.clone();
     let view_delete = view.clone();
+    let (view_import, view_export) = (view.clone(), view.clone());
+    let has_signals = !app.math_store.signals.is_empty();
     let header = section_header("Math signals")
+        .child(small_button("math-import", "Import…", true, move |_, cx| {
+            view_import.update(cx, |app, cx| app.import_math_signals_file(cx));
+        }))
+        .child(small_button("math-export", "Export…", has_signals, move |_, cx| {
+            view_export.update(cx, |app, cx| app.export_math_signals_file(cx));
+        }))
         .child(small_button("math-new", "New", true, move |window, cx| {
             view_new.update(cx, |app, cx| request(app, PendingMathAction::New, window, cx));
         }))
@@ -599,6 +618,7 @@ fn render_signal_list(
         .border_b_1()
         .border_color(rgb(BORDER))
         .child(header)
+        .when_some(render_import_conflicts(app, view.clone()), |el, bar| el.child(bar))
         .child(
             div()
                 .id("math-signal-list")
@@ -694,6 +714,46 @@ fn status_mark(check: &Check) -> (&'static str, Rgba) {
         Check::NoLibrary | Check::Names(_) => ("⚠", rgb(0xfbbf24)),
         Check::Syntax(_) => ("✗", rgb(0xf87171)),
     }
+}
+
+/// The bar asking what to do with imported Math signals whose names are
+/// already used, while an import waits for that.
+fn render_import_conflicts(app: &CanDataApp, view: Entity<CanDataApp>) -> Option<Div> {
+    let incoming = app.math.pending_import.as_ref()?;
+    let conflicts = app.math_store.conflicts(incoming);
+    let message = if conflicts.len() == 1 {
+        format!("A Math signal named {} already exists.", conflicts[0])
+    } else {
+        format!("These Math signals already exist: {}.", conflicts.join(", "))
+    };
+    let choose = |id: &'static str, label: &'static str, choice: ConflictChoice| {
+        let view = view.clone();
+        small_button(id, label, true, move |_, cx| {
+            view.update(cx, |app, cx| {
+                if let Some(signals) = app.math.pending_import.take() {
+                    app.apply_math_import(signals, choice);
+                }
+                cx.notify();
+            });
+        })
+    };
+    let view_cancel = view.clone();
+    Some(confirm_bar(
+        message,
+        vec![
+            choose("math-import-replace", "Replace", ConflictChoice::Replace),
+            choose("math-import-keep", "Keep both", ConflictChoice::KeepBoth),
+            choose("math-import-skip", "Skip", ConflictChoice::Skip),
+            small_button("math-import-cancel", "Cancel import", true, move |_, cx| {
+                view_cancel.update(cx, |app, cx| {
+                    app.math.pending_import = None;
+                    app.status_msg = "Import cancelled".into();
+                    cx.notify();
+                });
+            }),
+        ],
+    )
+    .mb_2())
 }
 
 /// A one-line bar asking the user to confirm something.

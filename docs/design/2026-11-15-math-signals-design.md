@@ -235,24 +235,30 @@ evaluates.
 
 ## Export and import
 
-The ⇅ menu on the Math screen offers **Export…** and **Import…**, using the
+**Import…** and **Export…** buttons in the Math signal list header use the
 native file dialogs (`rfd`), as library export does.
 
-- **Export** writes the selected Math signals (or all of them) to one `.cvmath`
-  file. It is a JSON document with a format tag and version, like `.cvlib`:
+- **Export** writes every Math signal to one `.cvmath` file. It is a JSON
+  document with a format tag and version, like `.cvlib`:
 
   ```json
-  { "format": "candata-math", "version": 1,
+  { "format": "candata-math", "format_version": 1,
+    "exported_at": "2026-11-15T10:00:00+01:00",
     "signals": [ { "name": "Motor_Power", "unit": "kW",
                    "equation": "Motor_Speed * Motor_Torque / 9549",
                    "time_mode": { "mode": "SampleAndHold" } } ] }
   ```
 
-- **Import** reads a `.cvmath` file and adds its signals. A signal whose name
-  is already used is offered as *Replace*, *Keep both* (imported as
-  `Name_2`), or *Skip*. Imported equations are checked like any other.
-- The code lives in `library/math_signals.rs` (file format) and
-  `app/commands/math_transfer.rs` (dialogs), mirroring `bundle.rs` and
+- **Import** reads a `.cvmath` file and adds its signals. A file with another
+  format tag, a newer version, an invalid name or the same name twice is
+  refused. If some names are already used (ignoring case), a bar lists them
+  and offers, for all of them at once: *Replace* (keeps the existing
+  spelling, so plots and sets still match), *Keep both* (imported as
+  `Name_2`, `Name_3`, ...), *Skip*, or *Cancel import*. Imported equations
+  are checked like any other, and a replaced Math signal that is plotted is
+  computed again.
+- The code lives in `library/math_signals.rs` (file format and import rules)
+  and `app/commands/math_transfer.rs` (dialogs), mirroring `bundle.rs` and
   `library_transfer.rs`.
 
 ## Phases
