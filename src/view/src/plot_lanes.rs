@@ -170,6 +170,28 @@ impl LaneLayout {
             .find_map(|lane| lane.signals.iter().position(|s| s == signal))
     }
 
+    /// Every plotted signal once, in lane order.
+    pub fn unique_signals(&self) -> Vec<String> {
+        let mut all: Vec<String> = Vec::new();
+        for signal in self.lanes.iter().flat_map(|lane| &lane.signals) {
+            if !all.contains(signal) {
+                all.push(signal.clone());
+            }
+        }
+        all
+    }
+
+    /// Take out signals that aren't in the list. Lanes stay, even if emptied.
+    pub fn retain_signals(&mut self, keep: &[String]) {
+        for lane in &mut self.lanes {
+            let before = lane.signals.len();
+            lane.signals.retain(|s| keep.contains(s));
+            if lane.signals.len() != before {
+                lane.auto_y_range = None;
+            }
+        }
+    }
+
     /// True if any lane plots this signal.
     pub fn contains(&self, signal: &str) -> bool {
         self.lanes
@@ -289,6 +311,311 @@ pub fn format_y_limit(value: f64) -> String {
     match trimmed {
         "" | "-" | "-0" => "0".to_string(),
         _ => trimmed.to_string(),
+    }
+}
+
+/// Name of the first window, and the start of new windows' names.
+pub const DEFAULT_WINDOW_NAME: &str = "Unnamed";
+
+/// The named plot windows. Only one is on screen at a time.
+///
+/// The on-screen window's lanes live outside this struct (in the app's
+/// `plot_lanes`), so the lane code works on one layout as before. Every method
+/// that needs them takes them as `current`. While a window is on screen its
+/// slot in `stored` holds an empty placeholder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlotWindows {
+    names: Vec<String>,
+    stored: Vec<LaneLayout>,
+    active: usize,
+}
+
+impl Default for PlotWindows {
+    fn default() -> Self {
+        Self {
+            names: vec![DEFAULT_WINDOW_NAME.to_string()],
+            stored: vec![LaneLayout::default()],
+            active: 0,
+        }
+    }
+}
+
+impl PlotWindows {
+    /// Windows from (name, lanes) pairs, with the first on screen. Returns its
+    /// lanes, which the caller keeps as `current`. No windows gives the default.
+    pub fn from_windows(windows: Vec<(String, LaneLayout)>) -> (Self, LaneLayout) {
+        if windows.is_empty() {
+            return (Self::default(), LaneLayout::default());
+        }
+        let (names, mut stored): (Vec<String>, Vec<LaneLayout>) = windows.into_iter().unzip();
+        let current = std::mem::take(&mut stored[0]);
+        (Self { names, stored, active: 0 }, current)
+    }
+
+    /// Every window's name and lanes, in order.
+    pub fn windows<'a>(&'a self, current: &'a LaneLayout) -> Vec<(&'a str, &'a LaneLayout)> {
+        self.names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let lanes = if i == self.active { current } else { &self.stored[i] };
+                (name.as_str(), lanes)
+            })
+            .collect()
+    }
+
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    pub fn active(&self) -> usize {
+        self.active
+    }
+
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    /// True if any window plots this signal.
+    pub fn contains(&self, current: &LaneLayout, signal: &str) -> bool {
+        self.windows(current).iter().any(|(_, lanes)| lanes.contains(signal))
+    }
+
+    /// The signals to decode: up to `per_window` from each window, in window
+    /// and lane order, each once.
+    pub fn plotted_signals(&self, current: &LaneLayout, per_window: usize) -> Vec<String> {
+        let mut all: Vec<String> = Vec::new();
+        for (_, lanes) in self.windows(current) {
+            for signal in lanes.unique_signals().into_iter().take(per_window) {
+                if !all.contains(&signal) {
+                    all.push(signal);
+                }
+            }
+        }
+        all
+    }
+
+    /// Put another window on screen.
+    pub fn switch_to(&mut self, index: usize, current: &mut LaneLayout) {
+        if index >= self.len() || index == self.active {
+            return;
+        }
+        std::mem::swap(current, &mut self.stored[self.active]);
+        self.active = index;
+        std::mem::swap(current, &mut self.stored[self.active]);
+    }
+
+    /// Add a window after the last one and put it on screen.
+    fn push_and_show(&mut self, name: String, lanes: LaneLayout, current: &mut LaneLayout) {
+        self.names.push(name);
+        self.stored.push(lanes);
+        let index = self.len() - 1;
+        self.switch_to(index, current);
+    }
+
+    /// Add a window with one empty lane, named "Unnamed", "Unnamed 2", ... and show it.
+    pub fn add_window(&mut self, current: &mut LaneLayout) {
+        let name = self.next_default_name();
+        self.push_and_show(name, LaneLayout::default(), current);
+    }
+
+    /// Copy the on-screen window under a new name and show the copy.
+    pub fn duplicate_active(&mut self, name: &str, current: &mut LaneLayout) -> Result<(), &'static str> {
+        let name = self.check_name(name, None)?;
+        let copy = current.clone();
+        self.push_and_show(name, copy, current);
+        Ok(())
+    }
+
+    pub fn rename(&mut self, index: usize, name: &str) -> Result<(), &'static str> {
+        if index >= self.len() {
+            return Err("No such window");
+        }
+        self.names[index] = self.check_name(name, Some(index))?;
+        Ok(())
+    }
+
+    /// Close a window. The last window can't be closed. Closing the one on
+    /// screen shows its neighbour.
+    pub fn close(&mut self, index: usize, current: &mut LaneLayout) -> bool {
+        if self.len() <= 1 || index >= self.len() {
+            return false;
+        }
+        self.names.remove(index);
+        self.stored.remove(index);
+        if index == self.active {
+            self.active = index.min(self.len() - 1);
+            *current = std::mem::take(&mut self.stored[self.active]);
+        } else if index < self.active {
+            self.active -= 1;
+        }
+        true
+    }
+
+    /// Bring every window in line with the app's list of plotted signals.
+    /// Signals no longer listed leave every window. New signals join the
+    /// on-screen window, as with a single layout.
+    pub fn sync_with_selection(&mut self, current: &mut LaneLayout, selected_signals: &[String]) {
+        let active = self.active;
+        for (i, lanes) in self.stored.iter_mut().enumerate() {
+            if i != active {
+                lanes.retain_signals(selected_signals);
+            }
+        }
+        let others = &self.stored;
+        let for_current: Vec<String> = selected_signals
+            .iter()
+            .filter(|s| !others.iter().enumerate().any(|(i, l)| i != active && l.contains(s)))
+            .cloned()
+            .collect();
+        current.sync_with_selection(&for_current);
+    }
+
+    /// The first free name of "Unnamed", "Unnamed 2", "Unnamed 3", ...
+    pub fn next_default_name(&self) -> String {
+        (1..)
+            .map(|n| {
+                if n == 1 {
+                    DEFAULT_WINDOW_NAME.to_string()
+                } else {
+                    format!("{} {}", DEFAULT_WINDOW_NAME, n)
+                }
+            })
+            .find(|name| !self.name_taken(name, None))
+            .unwrap()
+    }
+
+    /// True if another window (not `except`) has this name, ignoring case.
+    pub fn name_taken(&self, name: &str, except: Option<usize>) -> bool {
+        self.names
+            .iter()
+            .enumerate()
+            .any(|(i, n)| Some(i) != except && n.eq_ignore_ascii_case(name.trim()))
+    }
+
+    fn check_name(&self, name: &str, except: Option<usize>) -> Result<String, &'static str> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Window name cannot be empty");
+        }
+        if self.name_taken(name, except) {
+            return Err("A window with that name already exists");
+        }
+        Ok(name.to_string())
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    fn lanes_with(signals: &[&str]) -> LaneLayout {
+        LaneLayout::one_signal_per_lane(signals.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn starts_with_one_unnamed_window() {
+        let windows = PlotWindows::default();
+        assert_eq!(windows.names(), ["Unnamed"]);
+        assert_eq!(windows.active(), 0);
+    }
+
+    #[test]
+    fn new_windows_get_numbered_names_and_one_empty_lane() {
+        let mut windows = PlotWindows::default();
+        let mut current = lanes_with(&["a"]);
+        windows.add_window(&mut current);
+        windows.add_window(&mut current);
+        assert_eq!(windows.names(), ["Unnamed", "Unnamed 2", "Unnamed 3"]);
+        assert_eq!(windows.active(), 2);
+        assert_eq!(current, LaneLayout::default());
+    }
+
+    #[test]
+    fn switching_keeps_each_windows_lanes() {
+        let mut windows = PlotWindows::default();
+        let mut current = lanes_with(&["a", "b"]);
+        windows.add_window(&mut current);
+        current.add_signal(0, "c");
+        windows.switch_to(0, &mut current);
+        assert_eq!(current, lanes_with(&["a", "b"]));
+        windows.switch_to(1, &mut current);
+        assert_eq!(current, lanes_with(&["c"]));
+    }
+
+    #[test]
+    fn duplicate_copies_the_lanes_and_needs_a_free_name() {
+        let mut windows = PlotWindows::default();
+        let mut original = lanes_with(&["a"]);
+        original.lanes[0].y_range = Some((0.0, 5.0));
+        let mut current = original.clone();
+        assert!(windows.duplicate_active("unnamed", &mut current).is_err());
+        assert!(windows.duplicate_active("  ", &mut current).is_err());
+        windows.duplicate_active(" Temps ", &mut current).unwrap();
+        assert_eq!(windows.names(), ["Unnamed", "Temps"]);
+        assert_eq!(windows.active(), 1);
+        assert_eq!(current, original);
+        // The copy is separate from the original.
+        current.add_signal(0, "b");
+        windows.switch_to(0, &mut current);
+        assert_eq!(current, original);
+    }
+
+    #[test]
+    fn rename_allows_a_new_case_of_its_own_name_but_not_anothers() {
+        let mut windows = PlotWindows::default();
+        let mut current = LaneLayout::default();
+        windows.add_window(&mut current);
+        assert!(windows.rename(1, "UNNAMED").is_err());
+        windows.rename(0, "UNNAMED").unwrap();
+        windows.rename(1, "Torque").unwrap();
+        assert_eq!(windows.names(), ["UNNAMED", "Torque"]);
+    }
+
+    #[test]
+    fn closing_the_shown_window_shows_its_neighbour() {
+        let (mut windows, mut current) = PlotWindows::from_windows(vec![
+            ("A".into(), lanes_with(&["a"])),
+            ("B".into(), lanes_with(&["b"])),
+            ("C".into(), lanes_with(&["c"])),
+        ]);
+        windows.switch_to(2, &mut current);
+        assert!(windows.close(2, &mut current));
+        assert_eq!(windows.names(), ["A", "B"]);
+        assert_eq!(windows.active(), 1);
+        assert_eq!(current, lanes_with(&["b"]));
+        // Closing one before the shown window keeps the same window on screen.
+        assert!(windows.close(0, &mut current));
+        assert_eq!(windows.active(), 0);
+        assert_eq!(current, lanes_with(&["b"]));
+        // The last window stays.
+        assert!(!windows.close(0, &mut current));
+    }
+
+    #[test]
+    fn plotted_signals_cover_every_window_once_with_a_per_window_limit() {
+        let (windows, current) = PlotWindows::from_windows(vec![
+            ("A".into(), lanes_with(&["a", "b", "c"])),
+            ("B".into(), lanes_with(&["b", "d"])),
+        ]);
+        assert_eq!(windows.plotted_signals(&current, 10), ["a", "b", "c", "d"]);
+        assert_eq!(windows.plotted_signals(&current, 2), ["a", "b", "d"]);
+    }
+
+    #[test]
+    fn sync_leaves_other_windows_signals_where_they_are() {
+        let (mut windows, mut current) = PlotWindows::from_windows(vec![
+            ("A".into(), lanes_with(&["a"])),
+            ("B".into(), lanes_with(&["b", "c"])),
+        ]);
+        let selected: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        windows.sync_with_selection(&mut current, &selected);
+        assert_eq!(current, lanes_with(&["a"]));
+        // Dropping a signal from the list takes it out of the hidden window too.
+        windows.sync_with_selection(&mut current, &selected[..2]);
+        windows.switch_to(1, &mut current);
+        assert_eq!(current.lanes[0].signals, ["b"]);
+        assert!(current.lanes[1].signals.is_empty());
     }
 }
 

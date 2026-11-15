@@ -43,6 +43,19 @@ pub struct SignalSet {
     /// with one signal per lane.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lanes: Vec<SavedLane>,
+    /// The plot windows, each with its own lanes. Empty for sets saved before
+    /// windows existed, which open as one window from `lanes`. `lanes` holds a
+    /// copy of the first window's, so older versions of the app still open it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub windows: Vec<SavedWindow>,
+}
+
+/// One named plot window of a saved set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedWindow {
+    pub name: String,
+    #[serde(default)]
+    pub lanes: Vec<SavedLane>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -113,15 +126,53 @@ pub fn saved_lanes_from_layout(layout: &crate::plot_lanes::LaneLayout) -> Vec<Sa
         .collect()
 }
 
-/// Whether the lanes on screen are the ones the set would open with: same
-/// signals in the same lanes, Y ranges, Points and heights. Both sides go
-/// through the same conversion, so older sets without lanes compare fairly.
-pub fn layout_matches_set(
-    layout: &crate::plot_lanes::LaneLayout,
+/// Describe every plot window for saving.
+pub fn saved_windows(
+    windows: &crate::plot_lanes::PlotWindows,
+    current: &crate::plot_lanes::LaneLayout,
+) -> Vec<SavedWindow> {
+    windows
+        .windows(current)
+        .into_iter()
+        .map(|(name, lanes)| SavedWindow { name: name.to_string(), lanes: saved_lanes_from_layout(lanes) })
+        .collect()
+}
+
+/// The windows to show for a set, and the first window's lanes (the caller
+/// keeps those on screen). Sets saved before windows existed open as one
+/// window.
+pub fn windows_from_set(
+    set: &SignalSet,
+    channel_type: crate::models::ChannelType,
+) -> (crate::plot_lanes::PlotWindows, crate::plot_lanes::LaneLayout) {
+    use crate::plot_lanes::{DEFAULT_WINDOW_NAME, PlotWindows};
+
+    if set.windows.is_empty() {
+        return PlotWindows::from_windows(vec![(
+            DEFAULT_WINDOW_NAME.to_string(),
+            layout_from_set(set, channel_type),
+        )]);
+    }
+    PlotWindows::from_windows(
+        set.windows
+            .iter()
+            .map(|w| (w.name.clone(), layout_from_lanes(&w.lanes, channel_type)))
+            .collect(),
+    )
+}
+
+/// Whether the windows on screen are the ones the set would open with: same
+/// names, and the same signals in the same lanes with the same Y ranges,
+/// Points and heights. Both sides go through the same conversion, so older
+/// sets compare fairly.
+pub fn windows_match_set(
+    windows: &crate::plot_lanes::PlotWindows,
+    current: &crate::plot_lanes::LaneLayout,
     set: &SignalSet,
     channel_type: crate::models::ChannelType,
 ) -> bool {
-    saved_lanes_from_layout(layout) == saved_lanes_from_layout(&layout_from_set(set, channel_type))
+    let (set_windows, set_current) = windows_from_set(set, channel_type);
+    saved_windows(windows, current) == saved_windows(&set_windows, &set_current)
 }
 
 /// The lanes to show for a set. Older sets get one signal per lane.
@@ -129,13 +180,23 @@ pub fn layout_from_set(
     set: &SignalSet,
     channel_type: crate::models::ChannelType,
 ) -> crate::plot_lanes::LaneLayout {
-    use crate::plot_lanes::{LaneLayout, PlotLane};
+    use crate::plot_lanes::LaneLayout;
 
     if set.lanes.is_empty() {
         return LaneLayout::one_signal_per_lane(build_selected_signals_from_set(set, channel_type));
     }
+    layout_from_lanes(&set.lanes, channel_type)
+}
+
+/// A layout from saved lanes. No lanes gives one empty lane.
+fn layout_from_lanes(
+    lanes: &[SavedLane],
+    channel_type: crate::models::ChannelType,
+) -> crate::plot_lanes::LaneLayout {
+    use crate::plot_lanes::{LaneLayout, PlotLane};
+
     LaneLayout::from_lanes(
-        set.lanes
+        lanes
             .iter()
             .map(|lane| PlotLane {
                 signals: lane.entries.iter().map(|e| signal_id(e, channel_type)).collect(),
@@ -241,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_build_selected_signals_from_set_empty() {
-        let set = SignalSet { name: "empty".into(), entries: Vec::new(), lanes: Vec::new() };
+        let set = SignalSet { name: "empty".into(), entries: Vec::new(), lanes: Vec::new(), windows: Vec::new() };
         assert!(build_selected_signals_from_set(&set, ChannelType::CAN).is_empty());
     }
 
@@ -250,6 +311,7 @@ mod tests {
         let set = SignalSet {
             name: "s".into(),
             lanes: Vec::new(),
+            windows: Vec::new(),
             entries: vec![SignalSetEntry {
                 channel_id: 1,
                 msg_id: 256,
@@ -265,6 +327,7 @@ mod tests {
         let set = SignalSet {
             name: "s".into(),
             lanes: Vec::new(),
+            windows: Vec::new(),
             entries: vec![SignalSetEntry {
                 channel_id: 2,
                 msg_id: 32,
@@ -280,6 +343,7 @@ mod tests {
         let set = SignalSet {
             name: "s".into(),
             lanes: Vec::new(),
+            windows: Vec::new(),
             entries: vec![
                 SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into() },
                 SignalSetEntry { channel_id: 1, msg_id: 512, signal_name: "B".into() },
@@ -297,7 +361,7 @@ mod tests {
     }
 
     fn saved_set(lanes: Vec<SavedLane>) -> SignalSet {
-        SignalSet { name: "s".into(), entries: vec![entry("A"), entry("B")], lanes }
+        SignalSet { name: "s".into(), entries: vec![entry("A"), entry("B")], lanes, windows: Vec::new() }
     }
 
     #[test]
@@ -328,7 +392,7 @@ mod tests {
 
     #[test]
     fn an_empty_older_set_still_has_a_lane() {
-        let set = SignalSet { name: "s".into(), entries: Vec::new(), lanes: Vec::new() };
+        let set = SignalSet { name: "s".into(), entries: Vec::new(), lanes: Vec::new(), windows: Vec::new() };
         assert_eq!(layout_from_set(&set, ChannelType::CAN).lanes.len(), 1);
     }
 
@@ -358,6 +422,50 @@ mod tests {
 
         assert_eq!(restored.lanes, original.lanes);
         assert_eq!(restored.selected, 0);
+    }
+
+    fn two_windows() -> (crate::plot_lanes::PlotWindows, crate::plot_lanes::LaneLayout) {
+        use crate::plot_lanes::{LaneLayout, PlotWindows};
+        let mut temps = LaneLayout::one_signal_per_lane(vec!["CAN:1:256:A".into()]);
+        temps.lanes[0].y_range = Some((0.0, 120.0));
+        let torque = LaneLayout::one_signal_per_lane(vec!["CAN:1:256:B".into(), "CAN:1:256:A".into()]);
+        PlotWindows::from_windows(vec![("Temps".into(), temps), ("Torque".into(), torque)])
+    }
+
+    #[test]
+    fn windows_survive_saving_and_loading() {
+        let (windows, current) = two_windows();
+        let mut set = saved_set(Vec::new());
+        set.windows = saved_windows(&windows, &current);
+        set.lanes = set.windows[0].lanes.clone();
+
+        let json = serde_json::to_string(&set).unwrap();
+        let loaded: SignalSet = serde_json::from_str(&json).unwrap();
+        let (restored, restored_current) = windows_from_set(&loaded, ChannelType::CAN);
+        assert_eq!(restored.names(), ["Temps", "Torque"]);
+        assert_eq!(restored_current.lanes, current.lanes);
+        assert!(windows_match_set(&windows, &current, &loaded, ChannelType::CAN));
+    }
+
+    #[test]
+    fn sets_saved_before_windows_open_as_one_unnamed_window() {
+        let (windows, current) = windows_from_set(&saved_set(Vec::new()), ChannelType::CAN);
+        assert_eq!(windows.names(), ["Unnamed"]);
+        assert_eq!(current.lanes.len(), 2);
+        assert!(windows_match_set(&windows, &current, &saved_set(Vec::new()), ChannelType::CAN));
+    }
+
+    #[test]
+    fn renaming_or_closing_a_window_no_longer_matches_the_set() {
+        let (mut windows, mut current) = two_windows();
+        let mut set = saved_set(Vec::new());
+        set.windows = saved_windows(&windows, &current);
+        windows.rename(1, "Motor").unwrap();
+        assert!(!windows_match_set(&windows, &current, &set, ChannelType::CAN));
+        windows.rename(1, "Torque").unwrap();
+        assert!(windows_match_set(&windows, &current, &set, ChannelType::CAN));
+        windows.close(1, &mut current);
+        assert!(!windows_match_set(&windows, &current, &set, ChannelType::CAN));
     }
 
     #[test]
@@ -403,6 +511,7 @@ mod tests {
                 SignalSet {
                     name: "set1".into(),
                     lanes: Vec::new(),
+                    windows: Vec::new(),
                     entries: vec![SignalSetEntry {
                         channel_id: 1,
                         msg_id: 256,
@@ -412,6 +521,7 @@ mod tests {
                 SignalSet {
                     name: "set2".into(),
                     lanes: Vec::new(),
+                    windows: Vec::new(),
                     entries: vec![
                         SignalSetEntry { channel_id: 1, msg_id: 256, signal_name: "A".into() },
                         SignalSetEntry { channel_id: 2, msg_id: 512, signal_name: "B".into() },

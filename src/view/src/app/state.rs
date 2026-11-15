@@ -46,6 +46,13 @@ pub struct ScrollbarDragState {
     pub filtered_count: usize, // Number of filtered messages at drag start
 }
 
+/// What the window-name box is asking for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WindowNamePrompt {
+    Rename(usize),
+    Duplicate,
+}
+
 /// A drag of the divider below lane `upper`, as it was when the drag began.
 #[derive(Debug, Clone, Copy)]
 pub struct LaneResize {
@@ -68,7 +75,13 @@ pub struct CanDataApp {
     pub ldf_channels: HashMap<u16, LdfDatabase>,
     pub app_config: AppConfig,
     pub selected_signals: Vec<String>,
+    /// The lanes of the plot window on screen.
     pub plot_lanes: crate::plot_lanes::LaneLayout,
+    /// The named plot windows; the one on screen keeps its lanes in `plot_lanes`.
+    pub plot_windows: crate::plot_lanes::PlotWindows,
+    /// The window-name box, while renaming or duplicating a window.
+    pub window_name_prompt: Option<WindowNamePrompt>,
+    pub window_name_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     pub start_time: Option<chrono::NaiveDateTime>,
     pub plot_data: std::sync::Arc<[crate::models::Series]>,
     /// Full (unfiltered) decoded series — zoom only re-filters this, never re-decodes messages
@@ -369,6 +382,9 @@ impl CanDataApp {
             plot_y_max_input: None,
             plot_y_inputs_loaded: None,
             plot_lanes: Default::default(),
+            plot_windows: Default::default(),
+            window_name_prompt: None,
+            window_name_input: None,
             selected_row_index: None,
             expanded_channels: std::collections::HashSet::new(),
             expanded_messages: std::collections::HashSet::new(),

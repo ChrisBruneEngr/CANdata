@@ -32,7 +32,7 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanDataApp, view: Entity<
     let series_data = app.plot_data.clone();
 
     // Signals are added and removed from several places, so lanes catch up here.
-    app.plot_lanes.sync_with_selection(&app.selected_signals);
+    app.plot_windows.sync_with_selection(&mut app.plot_lanes, &app.selected_signals);
     settle_auto_y_ranges(app);
     refresh_y_range_inputs(app, window, cx);
     if app.plot_focus_handle.is_none() {
@@ -40,7 +40,7 @@ pub fn render_plot_view(window: &mut Window, app: &mut CanDataApp, view: Entity<
     }
 
     // Check if plot data size is reasonable
-    if series_data.len() > 100 {
+    if series_data.len() > 1000 {
         eprintln!("Warning: Excessive plot data ({} series). This may indicate a state corruption issue.", series_data.len());
         return div()
             .size_full()
@@ -98,14 +98,7 @@ fn render_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoEl
         .bg(rgb(0x18181b))
         .border_b_1()
         .border_color(rgb(0x27272a))
-        .child(
-            div()
-                .min_w_0()
-                .truncate() // one line, cut short on a narrow window
-                .text_xs()
-                .text_color(rgb(0x71717a))
-                .child("Click = set cursor · ←/→ = move cursor (Shift = next sample) · drag or wheel = zoom · right-drag = pan · Ctrl + wheel = scroll lanes")
-        )
+        .child(super::window_bar::render_window_bar(app, cx))
         .when_some(app.plot_cursor_time, |this, time| {
             this.child(
                 div()
@@ -147,7 +140,7 @@ fn render_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoEl
 /// Render the lane buttons above the lanes.
 fn render_lane_toolbar(app: &CanDataApp, cx: &mut Context<CanDataApp>) -> impl IntoElement {
     let lanes = &app.plot_lanes;
-    let over_limit = app.selected_signals.len() > MAX_SIGNALS;
+    let over_limit = lanes.unique_signals().len() > MAX_SIGNALS;
 
     div()
         .flex()
@@ -422,16 +415,20 @@ pub fn add_signal_to_lane(app: &mut CanDataApp, lane: usize, signal_id: &str) {
 /// Take a signal out of one lane, and stop plotting it if no other lane uses it.
 fn remove_signal_from_lane(app: &mut CanDataApp, lane: usize, signal_id: &str) {
     app.plot_lanes.remove_signal(lane, signal_id);
-    let lanes = &app.plot_lanes;
-    app.selected_signals.retain(|signal| lanes.contains(signal));
+    drop_unplotted_signals(app);
     extract_and_update_series_data(app);
+}
+
+/// Stop decoding signals that no window plots any more.
+fn drop_unplotted_signals(app: &mut CanDataApp) {
+    let (windows, lanes) = (&app.plot_windows, &app.plot_lanes);
+    app.selected_signals.retain(|signal| windows.contains(lanes, signal));
 }
 
 /// Delete the selected lane and stop plotting signals no other lane uses.
 fn delete_selected_lane(app: &mut CanDataApp) {
     app.plot_lanes.delete_selected();
-    let lanes = &app.plot_lanes;
-    app.selected_signals.retain(|signal| lanes.contains(signal));
+    drop_unplotted_signals(app);
     extract_and_update_series_data(app);
 }
 
@@ -1619,7 +1616,10 @@ pub fn extract_series_data(app: &CanDataApp) -> Arc<[Series]> {
     const MAX_RAW_POINTS: usize = 1_000_000; // Max points: 1M (needed for 10min @ 1ms = 600K points)
     const SAMPLING_INTERVAL_MS: f64 = 1.0; // 1ms sampling interval
 
-    let signal_count = app.selected_signals.len().min(MAX_SIGNALS);
+    // Every window's signals are decoded, so switching windows is instant and
+    // they all share one time range.
+    let plotted = app.plot_windows.plotted_signals(&app.plot_lanes, MAX_SIGNALS);
+    let signal_count = plotted.len();
     let message_count = app.messages.len().min(MAX_MESSAGES);
 
     eprintln!("📊 Processing {} signals from {} messages", signal_count, message_count);
@@ -1641,7 +1641,7 @@ pub fn extract_series_data(app: &CanDataApp) -> Arc<[Series]> {
     ];
 
     // Process each signal
-    for (idx, sig_id) in app.selected_signals.iter().take(signal_count).enumerate() {
+    for (idx, sig_id) in plotted.iter().enumerate() {
         eprintln!("  📡 Signal {}: {}", idx + 1, sig_id);
         
         // Parse signal ID: BUS:CHANNEL:MSG_ID:SIG_NAME or BUS:MSG_ID:SIG_NAME (compat)
