@@ -113,6 +113,17 @@ pub fn saved_lanes_from_layout(layout: &crate::plot_lanes::LaneLayout) -> Vec<Sa
         .collect()
 }
 
+/// Whether the lanes on screen are the ones the set would open with: same
+/// signals in the same lanes, Y ranges, Points and heights. Both sides go
+/// through the same conversion, so older sets without lanes compare fairly.
+pub fn layout_matches_set(
+    layout: &crate::plot_lanes::LaneLayout,
+    set: &SignalSet,
+    channel_type: crate::models::ChannelType,
+) -> bool {
+    saved_lanes_from_layout(layout) == saved_lanes_from_layout(&layout_from_set(set, channel_type))
+}
+
 /// The lanes to show for a set. Older sets get one signal per lane.
 pub fn layout_from_set(
     set: &SignalSet,

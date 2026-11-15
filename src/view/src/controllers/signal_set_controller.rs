@@ -2,8 +2,8 @@
 
 use crate::app::CanDataApp;
 use crate::library::signal_sets::{
-    SignalSet, build_selected_signals_from_set, layout_from_set, parse_signal_id,
-    save_signal_set_store, saved_lanes_from_layout,
+    SignalSet, SignalSetEntry, build_selected_signals_from_set, layout_from_set,
+    layout_matches_set, parse_signal_id, save_signal_set_store, saved_lanes_from_layout,
 };
 use gpui::Context;
 
@@ -30,14 +30,7 @@ pub fn save_current_selection_as_signal_set(
         }
     };
 
-    // Parse selected_signals → entries (silently skip unparseable ones)
-    let mut entries: Vec<_> = Vec::new();
-    for sig_id in &app.selected_signals {
-        match parse_signal_id(sig_id) {
-            Some(entry) => entries.push(entry),
-            None => eprintln!("⚠️  Skipping unparseable signal_id: {}", sig_id),
-        }
-    }
+    let entries = entries_from_selection(app);
     if entries.is_empty() {
         app.status_msg = "No valid signals to save".into();
         cx.notify();
@@ -68,8 +61,83 @@ pub fn save_current_selection_as_signal_set(
     } else {
         app.status_msg = format!("Saved set '{}' ({} signals)", name, count).into();
     }
+    // Carry on editing under the new name.
+    app.active_signal_set = Some((library_id, name));
     app.show_save_set_input = false;
     app.pending_signal_set_name = None;
+    cx.notify();
+}
+
+/// The selected signals as set entries. Unparseable IDs are skipped.
+fn entries_from_selection(app: &CanDataApp) -> Vec<SignalSetEntry> {
+    app.selected_signals
+        .iter()
+        .filter_map(|sig_id| {
+            let entry = parse_signal_id(sig_id);
+            if entry.is_none() {
+                eprintln!("⚠️  Skipping unparseable signal_id: {}", sig_id);
+            }
+            entry
+        })
+        .collect()
+}
+
+/// The active set, if it belongs to the active library: its name, and whether
+/// the lanes on screen differ from what is saved.
+pub fn active_set_status(app: &CanDataApp) -> Option<(String, bool)> {
+    let (library_id, set_name) = app.active_signal_set.as_ref()?;
+    if app.app_config.active_library_id.as_ref() != Some(library_id) {
+        return None;
+    }
+    let set = app
+        .signal_set_store
+        .sets_by_library
+        .get(library_id)?
+        .iter()
+        .find(|s| &s.name == set_name)?;
+    let channel_type = app.library_manager.find_library(library_id)?.channel_type;
+    let modified = !layout_matches_set(&app.plot_lanes, set, channel_type);
+    Some((set_name.clone(), modified))
+}
+
+/// Overwrite the active set with the current signals and lanes, in memory.
+/// Returns the set's name and signal count. Context-free for tests.
+pub fn update_active_signal_set_state(app: &mut CanDataApp) -> Result<(String, usize), &'static str> {
+    let (library_id, set_name) = app.active_signal_set.clone().ok_or("No signal set loaded")?;
+    if app.app_config.active_library_id.as_ref() != Some(&library_id) {
+        return Err("The loaded set belongs to another library");
+    }
+    let entries = entries_from_selection(app);
+    if entries.is_empty() {
+        return Err("No valid signals to save");
+    }
+    let lanes = saved_lanes_from_layout(&app.plot_lanes);
+    let set = app
+        .signal_set_store
+        .sets_by_library
+        .get_mut(&library_id)
+        .and_then(|sets| sets.iter_mut().find(|s| s.name == set_name))
+        .ok_or("Set not found")?;
+    let count = entries.len();
+    set.entries = entries;
+    set.lanes = lanes;
+    Ok((set_name, count))
+}
+
+/// Save the current signals and lanes over the active set, and write the file.
+pub fn update_active_signal_set(app: &mut CanDataApp, cx: &mut Context<CanDataApp>) {
+    app.status_msg = match update_active_signal_set_state(app) {
+        Ok((name, count)) => {
+            match save_signal_set_store(&app.signal_set_store, app.config_file_path.as_deref()) {
+                Ok(()) => format!("Updated set '{}' ({} signals)", name, count).into(),
+                Err(e) => {
+                    eprintln!("❌ Failed to save signal sets: {}", e);
+                    format!("Warning: could not save signal set to disk ({})", e).into()
+                }
+            }
+        }
+        Err(msg) => msg.into(),
+    };
     cx.notify();
 }
 
@@ -209,6 +277,62 @@ mod tests {
         );
         app.active_signal_set = Some(("lib1".into(), "Engine".into()));
         app
+    }
+
+    /// Load `Engine` so the lanes on screen match it.
+    fn app_with_loaded_set() -> CanDataApp {
+        let mut app = app_with_active_set();
+        apply_signal_set_state(&mut app, "lib1", "Engine").unwrap();
+        app
+    }
+
+    #[test]
+    fn a_freshly_loaded_set_is_not_modified() {
+        let app = app_with_loaded_set();
+        assert_eq!(active_set_status(&app), Some(("Engine".into(), false)));
+    }
+
+    #[test]
+    fn changing_a_lane_marks_the_set_modified_and_undoing_it_clears_that() {
+        let mut app = app_with_loaded_set();
+        app.plot_lanes.lanes[0].show_points = !app.plot_lanes.lanes[0].show_points;
+        assert_eq!(active_set_status(&app), Some(("Engine".into(), true)));
+        app.plot_lanes.lanes[0].show_points = !app.plot_lanes.lanes[0].show_points;
+        assert_eq!(active_set_status(&app), Some(("Engine".into(), false)));
+    }
+
+    #[test]
+    fn adding_a_signal_keeps_the_set_name_and_marks_it_modified() {
+        let mut app = app_with_loaded_set();
+        crate::ui::views::chart_view::add_signal_to_lane(&mut app, 0, "CAN:1:256:Torque");
+        assert_eq!(active_set_status(&app), Some(("Engine".into(), true)));
+    }
+
+    #[test]
+    fn update_overwrites_the_set_with_the_current_lanes() {
+        let mut app = app_with_loaded_set();
+        crate::ui::views::chart_view::add_signal_to_lane(&mut app, 0, "CAN:1:256:Torque");
+        app.plot_lanes.lanes[1].y_range = Some((0.0, 100.0));
+        assert_eq!(update_active_signal_set_state(&mut app), Ok(("Engine".into(), 3)));
+        assert_eq!(active_set_status(&app), Some(("Engine".into(), false)));
+        let set = &app.signal_set_store.sets_by_library["lib1"][0];
+        assert_eq!(set.entries.len(), 3);
+        assert_eq!(set.lanes.len(), 2);
+        assert_eq!(set.lanes[0].entries.len(), 2);
+        assert_eq!(set.lanes[1].y_range, Some((0.0, 100.0)));
+        // Only one set: updating doesn't add a copy.
+        assert_eq!(app.signal_set_store.sets_by_library["lib1"].len(), 1);
+    }
+
+    #[test]
+    fn update_needs_a_set_in_the_active_library() {
+        let mut app = app_with_loaded_set();
+        app.app_config.active_library_id = Some("other".into());
+        assert!(update_active_signal_set_state(&mut app).is_err());
+        assert_eq!(active_set_status(&app), None);
+        app.app_config.active_library_id = Some("lib1".into());
+        app.active_signal_set = None;
+        assert!(update_active_signal_set_state(&mut app).is_err());
     }
 
     #[test]
