@@ -2,8 +2,8 @@
 
 use crate::app::CanDataApp;
 use crate::library::signal_sets::{
-    SignalSet, SignalSetEntry, build_selected_signals_from_set, layout_from_set,
-    layout_matches_set, parse_signal_id, save_signal_set_store, saved_lanes_from_layout,
+    SavedLane, SavedWindow, SignalSet, SignalSetEntry, parse_signal_id, save_signal_set_store,
+    saved_windows, windows_from_set, windows_match_set,
 };
 use gpui::Context;
 
@@ -50,11 +50,13 @@ pub fn save_current_selection_as_signal_set(
     }
 
     let count = entries.len();
-    sets.push(SignalSet {
-        name: name.clone(),
-        entries,
-        lanes: saved_lanes_from_layout(&app.plot_lanes),
-    });
+    let (lanes, windows) = saved_layout(app);
+    let sets = app
+        .signal_set_store
+        .sets_by_library
+        .entry(library_id.clone())
+        .or_default();
+    sets.push(SignalSet { name: name.clone(), entries, lanes, windows });
     if let Err(e) = save_signal_set_store(&app.signal_set_store, app.config_file_path.as_deref()) {
         eprintln!("❌ Failed to save signal sets: {}", e);
         app.status_msg = format!("Warning: could not save signal set to disk ({})", e).into();
@@ -66,6 +68,14 @@ pub fn save_current_selection_as_signal_set(
     app.show_save_set_input = false;
     app.pending_signal_set_name = None;
     cx.notify();
+}
+
+/// The windows to save, and a copy of the first window's lanes for older
+/// versions of the app.
+fn saved_layout(app: &CanDataApp) -> (Vec<SavedLane>, Vec<SavedWindow>) {
+    let windows = saved_windows(&app.plot_windows, &app.plot_lanes);
+    let first_lanes = windows.first().map(|w| w.lanes.clone()).unwrap_or_default();
+    (first_lanes, windows)
 }
 
 /// The selected signals as set entries. Unparseable IDs are skipped.
@@ -96,7 +106,7 @@ pub fn active_set_status(app: &CanDataApp) -> Option<(String, bool)> {
         .iter()
         .find(|s| &s.name == set_name)?;
     let channel_type = app.library_manager.find_library(library_id)?.channel_type;
-    let modified = !layout_matches_set(&app.plot_lanes, set, channel_type);
+    let modified = !windows_match_set(&app.plot_windows, &app.plot_lanes, set, channel_type);
     Some((set_name.clone(), modified))
 }
 
@@ -111,7 +121,7 @@ pub fn update_active_signal_set_state(app: &mut CanDataApp) -> Result<(String, u
     if entries.is_empty() {
         return Err("No valid signals to save");
     }
-    let lanes = saved_lanes_from_layout(&app.plot_lanes);
+    let (lanes, windows) = saved_layout(app);
     let set = app
         .signal_set_store
         .sets_by_library
@@ -121,6 +131,7 @@ pub fn update_active_signal_set_state(app: &mut CanDataApp) -> Result<(String, u
     let count = entries.len();
     set.entries = entries;
     set.lanes = lanes;
+    set.windows = windows;
     Ok((set_name, count))
 }
 
@@ -176,10 +187,10 @@ pub fn apply_signal_set_state(
         .ok_or("Set not found")?
         .clone();
 
-    app.selected_signals.clear();
-    app.selected_signals
-        .extend(build_selected_signals_from_set(&set, channel_type));
-    app.plot_lanes = layout_from_set(&set, channel_type);
+    let (windows, current) = windows_from_set(&set, channel_type);
+    app.plot_windows = windows;
+    app.plot_lanes = current;
+    app.selected_signals = app.plot_windows.plotted_signals(&app.plot_lanes, usize::MAX);
     app.active_signal_set = Some((library_id.to_string(), set_name.to_string()));
 
     // Trigger plot refresh
@@ -273,7 +284,7 @@ mod tests {
             .collect();
         app.signal_set_store.sets_by_library.insert(
             "lib1".into(),
-            vec![SignalSet { name: "Engine".into(), entries, lanes: Vec::new() }],
+            vec![SignalSet { name: "Engine".into(), entries, lanes: Vec::new(), windows: Vec::new() }],
         );
         app.active_signal_set = Some(("lib1".into(), "Engine".into()));
         app
@@ -322,6 +333,22 @@ mod tests {
         assert_eq!(set.lanes[1].y_range, Some((0.0, 100.0)));
         // Only one set: updating doesn't add a copy.
         assert_eq!(app.signal_set_store.sets_by_library["lib1"].len(), 1);
+    }
+
+    #[test]
+    fn update_saves_every_window_and_a_window_change_marks_the_set_modified() {
+        let mut app = app_with_loaded_set();
+        app.plot_windows.duplicate_active("Copy", &mut app.plot_lanes).unwrap();
+        assert_eq!(active_set_status(&app), Some(("Engine".into(), true)));
+        update_active_signal_set_state(&mut app).unwrap();
+        assert_eq!(active_set_status(&app), Some(("Engine".into(), false)));
+        let set = &app.signal_set_store.sets_by_library["lib1"][0];
+        let names: Vec<&str> = set.windows.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, ["Unnamed", "Copy"]);
+        // Loading it again brings both windows back.
+        apply_signal_set_state(&mut app, "lib1", "Engine").unwrap();
+        assert_eq!(app.plot_windows.names(), ["Unnamed", "Copy"]);
+        assert_eq!(app.plot_windows.active(), 0);
     }
 
     #[test]
