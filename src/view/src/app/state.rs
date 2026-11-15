@@ -36,6 +36,7 @@ pub enum AppView {
     ConfigView,
     LibraryView,
     PlotView,
+    MathView,
 }
 
 /// State for tracking scrollbar drag operation
@@ -253,6 +254,10 @@ pub struct CanDataApp {
     /// initialization in impls_rendering.rs render loop).
     pub signal_set_name_input: Option<gpui::Entity<gpui_component::input::InputState>>,
 
+    // Math signals (global, see library::math_signals)
+    pub math_store: crate::library::math_signals::MathSignalStore,
+    /// UI state of the Math view.
+    pub math: crate::ui::views::math_view::MathViewState,
 }
 
 /// Which input to focus next when the user presses Enter in the add-channel form.
@@ -397,6 +402,8 @@ impl CanDataApp {
             show_save_set_input: false,
             show_signal_set_dropdown: false,
             signal_set_name_input: None,
+            math_store: crate::library::math_signals::load_math_signal_store(None),
+            math: Default::default(),
         }
     }
 

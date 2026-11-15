@@ -1781,6 +1781,10 @@ impl Render for CanDataApp {
                             crate::ui::views::chart_view::render_plot_view(window, self, cx.entity().clone(), cx)
                                 .into_any_element()
                         }
+                        AppView::MathView => {
+                            crate::ui::views::math_view::render_math_view(window, self, cx.entity().clone(), cx)
+                                .into_any_element()
+                        }
                     })
                     // Library picker overlay — covers only the content area
                     .when_some(

@@ -629,6 +629,7 @@ fn render_view_name_segment(view_val: AppView) -> impl IntoElement {
         AppView::PlotView => "plot mode",
         AppView::LibraryView => "library mode",
         AppView::ConfigView => "config mode",
+        AppView::MathView => "math mode",
     };
     div().text_color(colors::TEXT_MUTED).child(name.to_string())
 }

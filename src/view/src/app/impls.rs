@@ -147,6 +147,8 @@ impl CanDataApp {
             show_save_set_input: false,
             show_signal_set_dropdown: false,
             signal_set_name_input: None,
+            math_store: crate::library::math_signals::load_math_signal_store(None),
+            math: Default::default(),
         };
 
         // 🔧 Load the configuration at startup

@@ -1,6 +1,6 @@
 //! TopBar component
 //!
-//! Renders the top bar: File menu button (left) + Library button (right) +
+//! Renders the top bar: File menu, Library and Math buttons (left) +
 //! window controls (Win/Linux only — macOS uses system traffic lights).
 //! Data view tabs (Log/Plot) and the active-library badge live in the
 //! StatusBar, not here.
@@ -93,6 +93,39 @@ pub fn render_top_bar(
             });
         });
 
+    // Math button (right of Library): Math signal editor. Same active
+    // indicator as Library.
+    let in_math_view = app.current_view == AppView::MathView;
+    let view_for_math = view.clone();
+    let math_button = div()
+        .px(spacing::SM)
+        .h_full()
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .text_sm()
+        .text_color(if in_math_view {
+            colors::TEXT_PRIMARY
+        } else {
+            colors::TEXT_MUTED
+        })
+        .hover(|s| {
+            if in_math_view {
+                s
+            } else {
+                s.text_color(colors::TEXT_SECONDARY)
+            }
+        })
+        .when(in_math_view, |el| el.border_b_2().border_color(colors::PRIMARY))
+        .child("Math")
+        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            cx.stop_propagation();
+            view_for_math.update(cx, |app, cx| {
+                app.current_view = AppView::MathView;
+                cx.notify();
+            });
+        });
+
     // Help button (right side). Toggles the help dropdown (About / GitHub).
     // Styling mirrors the File menu button so the top bar reads consistently.
     let show_help_menu = app.show_help_menu;
@@ -169,9 +202,10 @@ pub fn render_top_bar(
         .border_b_1()
         .border_color(colors::BORDER_SUBTLE)
         .window_control_area(WindowControlArea::Drag)
-        // Left: File menu + Library button (config entry)
+        // Left: File menu + Library button (config entry) + Math button
         .child(file_button)
         .child(library_button)
+        .child(math_button)
         // Center: spacer that fills remaining width so the right side sticks to the edge
         .child(div().flex_1())
         // Right: Settings + Help buttons + window controls
