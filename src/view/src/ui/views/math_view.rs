@@ -267,6 +267,23 @@ fn insert_into_equation(app: &mut CanDataApp, text: &str, window: &mut Window, c
     cx.notify();
 }
 
+/// Insert `name()` into the equation with the cursor between the brackets.
+fn insert_function(app: &mut CanDataApp, name: &str, window: &mut Window, cx: &mut Context<CanDataApp>) {
+    if app.math.selected.is_none() {
+        return;
+    }
+    if let Some(input) = &app.math.equation_input {
+        let text = format!("{}()", name);
+        input.update(cx, |state, cx| {
+            state.insert(text, window, cx);
+            let mut position = state.cursor_position();
+            position.character = position.character.saturating_sub(1);
+            state.set_cursor_position(position, window, cx);
+        });
+    }
+    cx.notify();
+}
+
 // ---------------------------------------------------------------------------
 // Signal browser
 // ---------------------------------------------------------------------------
@@ -932,6 +949,7 @@ fn render_browser(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl 
     let no_channels = app.dbc_channels.is_empty() && app.ldf_channels.is_empty();
     let can_insert = app.math.selected.is_some();
     let grouped = app.app_config.signal_list_mode == SignalListMode::Grouped;
+    let view_for_functions = view.clone();
 
     let body = if no_channels {
         div()
@@ -981,6 +999,58 @@ fn render_browser(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl 
                 .child("Double-click a signal to insert it into the equation."),
         )
         .child(div().flex_1().min_h_0().child(body))
+        .child(render_functions(can_insert, view_for_functions))
+}
+
+/// The Functions list under the signal browser. Double-click one to insert
+/// it into the equation.
+fn render_functions(can_insert: bool, view: Entity<CanDataApp>) -> impl IntoElement {
+    let rows = crate::math::functions::FUNCTIONS.iter().map(|function| {
+        let view = view.clone();
+        let name = function.name;
+        div()
+            .px_3()
+            .h(px(22.))
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_xs()
+            .when(can_insert, |el| {
+                el.cursor_pointer()
+                    .hover(|s| s.bg(rgb(HOVER_BG)))
+                    .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                        if event.click_count == 2 {
+                            view.update(cx, |app, cx| insert_function(app, name, window, cx));
+                        }
+                    })
+            })
+            .child(div().flex_shrink_0().text_color(rgb(TEXT)).child(function.signature()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(rgb(MUTED))
+                    .child(function.description),
+            )
+    });
+    div()
+        .h(px(280.))
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .border_t_1()
+        .border_color(rgb(BORDER))
+        .child(section_header("Functions"))
+        .child(
+            div()
+                .px_3()
+                .py_1()
+                .text_xs()
+                .text_color(rgb(MUTED))
+                .child("Double-click to insert. Compare with < <= > >= == != (true is 1, false is 0)."),
+        )
+        .child(div().id("math-functions").flex_1().min_h_0().overflow_y_scroll().children(rows))
 }
 
 fn render_browser_row(

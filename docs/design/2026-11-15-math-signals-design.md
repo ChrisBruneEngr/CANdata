@@ -48,7 +48,7 @@ indicator, like Library. The view lives in `ui/views/math_view.rs`.
 │ │ ...                               │ │       Motor_Torque       │
 │ └───────────────────────────────────┘ │ ▸ CH2  Chassis           │
 │                                       │                          │
-│ Name [Motor_Power__]  Unit [kW__]     │ Functions   (phase 4)    │
+│ Name [Motor_Power__]  Unit [kW__]     │ Functions                │
 │ ┌───────────────────────────────────┐ │   abs(x)                 │
 │ │ Motor_Speed * Motor_Torque / 9549 │ │   sqrt(x)                │
 │ │                                   │ │   min(a, b)              │
@@ -77,7 +77,7 @@ indicator, like Library. The view lives in `ui/views/math_view.rs`.
   message, or one alphabetical list (shared names marked with channel and ID). It reuses the item building from `plot_sidebar.rs`
   (`extract_signal_items`) where it can. Double-clicking a signal inserts its
   plain name at the editor cursor.
-- **Functions list (right, phase 4).** Double-clicking a function inserts
+- **Functions list (right).** Double-clicking a function inserts
   `name()` and puts the cursor between the brackets.
 - **No active library.** The browser shows a hint to activate one. Math signals
   can still be edited, but every equation is marked ⚠.
@@ -132,18 +132,20 @@ decoded signal name. In that case the plot sidebar tells them apart by group
 Grammar, lowest precedence first:
 
 ```
+compare := expr   (CMP expr)?            // at most one comparison
 expr    := term   (('+' | '-') term)*
 term    := unary  (('*' | '/') unary)*
 unary   := '-' unary | power
 power   := primary ('^' unary)?          // right-associative: 2^3^2 = 2^9
-primary := NUMBER | NAME | NAME '(' args? ')' | '(' expr ')'
-args    := expr (',' expr)*
+primary := NUMBER | NAME | NAME '(' args? ')' | '(' compare ')'
+args    := compare (',' compare)*
+CMP     := '<' | '<=' | '>' | '>=' | '==' | '!='
 NUMBER  := 12 | 1.5 | .5 | 1e-3 | 2.5E+4
 NAME    := [A-Za-z_][A-Za-z0-9_]*
 ```
 
-Whitespace is ignored. Comparisons (`< <= > >= == !=`) and `if(cond, a, b)`
-are added in phase 4, with comparisons at a lower precedence than `+ -`.
+Whitespace is ignored. A comparison gives 1 when true and 0 when false; a
+single `=` is refused with a hint to use `==`.
 
 The parser (`math/parser.rs`) produces an AST:
 
@@ -203,8 +205,8 @@ interpolation:
 
 - *Hold:* the last value at or before the grid time.
 - *Linear:* a straight line between the samples either side of the grid time.
-  After an input's last sample, its last value is held. This gives evenly spaced output, which phase 4's
-derivative and integral functions will need. The rate must be > 0. The editor
+  After an input's last sample, its last value is held. This gives evenly spaced output, which suits the
+`derivative`, `integral` and `lowpass` functions. The rate must be > 0. The editor
 warns when a rate would produce more than about 10 million points over the
 loaded log.
 
@@ -261,6 +263,31 @@ native file dialogs (`rfd`), as library export does.
   and `app/commands/math_transfer.rs` (dialogs), mirroring `bundle.rs` and
   `library_transfer.rs`.
 
+## Functions
+
+Listed under the signal browser; double-clicking one inserts `name()` with
+the cursor between the brackets (`math/functions.rs`).
+
+| Function                       | Gives                                         |
+| ------------------------------ | --------------------------------------------- |
+| `abs sqrt exp ln log10 round`  | the usual value of x                          |
+| `sin cos tan`                  | trigonometry, x in radians                    |
+| `min(a, b, ...)`, `max(...)`   | smallest / largest of two or more values      |
+| `clamp(x, low, high)`          | x kept between low and high                   |
+| `if(condition, then, else)`    | `then` where condition is not 0, else `else`  |
+| `derivative(x)`                | change per second from the previous point     |
+| `integral(x)`                  | running total by the trapezoid rule, from 0   |
+| `lowpass(x, seconds)`          | first-order filter with that time constant    |
+
+Comparisons `< <= > >= == !=` give 1 or 0 and sit below `+ -`; only one is
+allowed without brackets. Checking reports unknown functions (with a hint for
+capitals) and wrong numbers of values.
+
+The equation is evaluated over the whole series at once (`eval_series`), so
+the time-based functions see earlier points. They use the spacing of the
+output points: with sample-and-hold that is uneven, so for `derivative`,
+`integral` and `lowpass` a resample rate usually gives cleaner results.
+
 ## Phases
 
 1. **Math screen and storage.** `MathView`, the top-bar button, the
@@ -277,9 +304,9 @@ native file dialogs (`rfd`), as library export does.
    late-starting inputs, resample grid edges, hold and linear, NaN dropping).
 4. **Export and import.** `.cvmath` files, with name conflict handling. Unit
    tests for round trip, bad files and conflicts.
-5. **Functions.** The functions list. `abs sqrt exp ln log10 sin cos tan min
-   max clamp`, comparisons and `if`. Then the time-based functions
-   (`derivative`, `integral`, `lowpass`), which use the point history.
+5. **Functions.** The functions list, `abs sqrt exp ln log10 sin cos tan
+   round min max clamp`, comparisons and `if`, and the time-based functions
+   `derivative`, `integral` and `lowpass`.
 6. **Math of Math (optional).** Equations may name other Math signals. Evaluate
    in dependency order, and report loops (`A` uses `B` uses `A`) as an error.
 

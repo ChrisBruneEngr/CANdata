@@ -1,6 +1,7 @@
 //! Checking a Math signal equation against the active library: syntax first,
 //! then every signal name it uses.
 
+use super::functions;
 use super::parser::{Expr, ParseError, parse, position_text};
 use crate::app::CanDataApp;
 use std::collections::HashMap;
@@ -126,9 +127,17 @@ pub fn check(source: &str, index: &SignalIndex) -> Check {
 
 fn check_names(expr: &Expr, index: &SignalIndex) -> Check {
     let mut issues = Vec::new();
-    // No functions exist yet; they are added in a later phase.
-    for (name, range) in expr.function_names() {
-        issues.push(NameIssue { message: format!("Unknown function '{}'", name), range });
+    for (name, range, count) in expr.calls() {
+        let problem = match functions::find(name) {
+            Some(function) => function.check_arg_count(count).err(),
+            None => Some(match functions::find_ignoring_case(name) {
+                Some(similar) => format!("Unknown function '{}' (did you mean '{}'?)", name, similar.name),
+                None => format!("Unknown function '{}'", name),
+            }),
+        };
+        if let Some(message) = problem {
+            issues.push(NameIssue { message, range });
+        }
     }
     if index.is_empty() {
         return if issues.is_empty() { Check::NoLibrary } else { Check::Names(issues) };
@@ -213,9 +222,13 @@ mod tests {
     }
 
     #[test]
-    fn functions_are_unknown_for_now() {
-        let Check::Names(issues) = check("abs(Motor_Speed)", &index()) else { panic!() };
-        assert_eq!(issues[0].message, "Unknown function 'abs'");
+    fn functions_are_checked() {
+        assert!(matches!(check("abs(Motor_Speed) + max(1, 2, 3)", &index()), Check::Ok { .. }));
+        let Check::Names(issues) = check("Abs(Motor_Speed) + nope(1) + sqrt(1, 2)", &index()) else { panic!() };
+        assert_eq!(issues[0].message, "Unknown function 'Abs' (did you mean 'abs'?)");
+        assert_eq!(issues[1].message, "Unknown function 'nope'");
+        assert_eq!(issues[2].message, "sqrt takes 1 value, not 2 (sqrt(x))");
+        assert_eq!(issues[2].range, 29..33);
     }
 
     #[test]
