@@ -5,12 +5,13 @@
 //! below it. Right: the signals of the active library; double-click one to
 //! insert its name into the equation at the cursor.
 //!
-//! Math signals are stored in `library::math_signals`. Equation checking and
-//! plotting come in later phases (see
+//! Math signals are stored in `library::math_signals`. Equations are checked
+//! as they are typed (`math::resolve`). Plotting comes in a later phase (see
 //! `docs/design/2026-11-15-math-signals-design.md`).
 
 use crate::app::CanDataApp;
 use crate::library::math_signals::{MathSignal, save_math_signal_store};
+use crate::math::resolve::{Check, SignalIndex, check};
 use crate::models::SignalListMode;
 use gpui::prelude::*;
 use gpui::*;
@@ -136,6 +137,11 @@ fn save(app: &mut CanDataApp, cx: &mut Context<CanDataApp>) {
     let name = name.trim().to_string();
     if let Err(e) = app.math_store.validate_name(&name, Some(i)) {
         app.status_msg = format!("❌ {}", e).into();
+        cx.notify();
+        return;
+    }
+    if let Check::Syntax(e) = check(&equation, &SignalIndex::default()) {
+        app.status_msg = format!("❌ {}", e.message).into();
         cx.notify();
         return;
     }
@@ -357,6 +363,7 @@ pub fn render_math_view(
     cx: &mut Context<CanDataApp>,
 ) -> impl IntoElement {
     ensure_inputs(app, window, cx);
+    let index = SignalIndex::from_app(app);
 
     div()
         .size_full()
@@ -371,8 +378,8 @@ pub fn render_math_view(
                 .flex_col()
                 .border_r_1()
                 .border_color(rgb(BORDER))
-                .child(render_signal_list(app, view.clone(), cx))
-                .child(render_editor(app, view.clone(), cx)),
+                .child(render_signal_list(app, &index, view.clone(), cx))
+                .child(render_editor(app, &index, view.clone(), cx)),
         )
         .child(
             div()
@@ -427,7 +434,12 @@ fn small_button(
         .child(label)
 }
 
-fn render_signal_list(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl IntoElement {
+fn render_signal_list(
+    app: &CanDataApp,
+    index: &SignalIndex,
+    view: Entity<CanDataApp>,
+    cx: &App,
+) -> impl IntoElement {
     let selected = app.math.selected;
     let dirty = is_dirty(app, cx);
     let has_selection = selected.is_some();
@@ -454,6 +466,7 @@ fn render_signal_list(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> i
         .map(|(i, signal)| {
             let is_selected = selected == Some(i);
             let view = view.clone();
+            let (mark, mark_color) = status_mark(&check(&signal.equation, index));
             div()
                 .id(("math-row", i))
                 .px_3()
@@ -471,6 +484,7 @@ fn render_signal_list(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> i
                         }
                     });
                 })
+                .child(div().w(px(14.)).flex_shrink_0().text_sm().text_color(mark_color).child(mark))
                 .child(
                     div()
                         .w(px(220.))
@@ -529,6 +543,16 @@ fn render_signal_list(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> i
         )
 }
 
+/// The list mark and status colour for a check: ✓ usable with the active
+/// library, ⚠ fine but not usable with it, ✗ can't be read.
+fn status_mark(check: &Check) -> (&'static str, Rgba) {
+    match check {
+        Check::Ok { .. } => ("✓", rgb(0x4ade80)),
+        Check::NoLibrary | Check::Names(_) => ("⚠", rgb(0xfbbf24)),
+        Check::Syntax(_) => ("✗", rgb(0xf87171)),
+    }
+}
+
 /// A one-line bar asking the user to confirm something.
 fn confirm_bar(message: String, buttons: Vec<Stateful<Div>>) -> Div {
     div()
@@ -547,7 +571,12 @@ fn confirm_bar(message: String, buttons: Vec<Stateful<Div>>) -> Div {
         .children(buttons)
 }
 
-fn render_editor(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl IntoElement {
+fn render_editor(
+    app: &CanDataApp,
+    index: &SignalIndex,
+    view: Entity<CanDataApp>,
+    cx: &App,
+) -> impl IntoElement {
     let Some(signal) = app.math.selected.and_then(|i| app.math_store.signals.get(i)) else {
         return div()
             .flex_1()
@@ -569,7 +598,9 @@ fn render_editor(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl I
 
     let dirty = is_dirty(app, cx);
     let name_error = name_error(app, cx);
-    let equation_empty = equation_input.read(cx).value().trim().is_empty();
+    let equation = equation_input.read(cx).value().to_string();
+    let equation_check = check(&equation, index);
+    let (_, status_color) = status_mark(&equation_check);
 
     let mut el = div().flex_1().min_h_0().flex().flex_col();
 
@@ -647,12 +678,8 @@ fn render_editor(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl I
             .child(
                 div()
                     .text_xs()
-                    .text_color(if equation_empty { rgb(0xfbbf24) } else { rgb(MUTED) })
-                    .child(if equation_empty {
-                        "⚠ The equation is empty."
-                    } else {
-                        "Equation checking is not available yet."
-                    }),
+                    .text_color(status_color)
+                    .child(equation_check.summary(&equation)),
             )
             .child(
                 div()
@@ -665,7 +692,7 @@ fn render_editor(app: &CanDataApp, view: Entity<CanDataApp>, cx: &App) -> impl I
                             cx.notify();
                         });
                     }))
-                    .child(small_button("math-save", "Save", dirty && name_error.is_none(), move |_, cx| {
+                    .child(small_button("math-save", "Save", dirty && name_error.is_none() && !equation_check.is_error(), move |_, cx| {
                         view_save.update(cx, |app, cx| save(app, cx));
                     })),
             ),
