@@ -6,7 +6,7 @@
 #   installer-output\candata-Setup-v<Version>.exe
 
 param(
-    [string]$Version = "1.2.0",
+    [string]$Version = "1.3.0",
     [string]$InnoSetupPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 )
 
