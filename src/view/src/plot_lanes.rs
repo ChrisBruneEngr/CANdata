@@ -123,6 +123,17 @@ impl LaneLayout {
     }
 
     /// Add a signal to a lane. Returns false if the lane doesn't exist or already has it.
+    /// Rename a signal in every lane.
+    pub fn rename_signal(&mut self, old: &str, new: &str) {
+        for lane in &mut self.lanes {
+            for signal in &mut lane.signals {
+                if signal == old {
+                    *signal = new.to_string();
+                }
+            }
+        }
+    }
+
     pub fn add_signal(&mut self, lane: usize, signal: &str) -> bool {
         match self.lanes.get_mut(lane) {
             Some(lane) if !lane.signals.iter().any(|s| s == signal) => {
@@ -376,6 +387,16 @@ impl PlotWindows {
         self.names.len()
     }
 
+    /// Rename a signal in every window's lanes.
+    pub fn rename_signal(&mut self, current: &mut LaneLayout, old: &str, new: &str) {
+        for (i, lanes) in self.stored.iter_mut().enumerate() {
+            if i != self.active {
+                lanes.rename_signal(old, new);
+            }
+        }
+        current.rename_signal(old, new);
+    }
+
     /// True if any window plots this signal.
     pub fn contains(&self, current: &LaneLayout, signal: &str) -> bool {
         self.windows(current).iter().any(|(_, lanes)| lanes.contains(signal))
@@ -590,6 +611,17 @@ mod window_tests {
         assert_eq!(current, lanes_with(&["b"]));
         // The last window stays.
         assert!(!windows.close(0, &mut current));
+    }
+
+    #[test]
+    fn rename_signal_in_every_window() {
+        let (mut windows, mut current) = PlotWindows::from_windows(vec![
+            ("A".into(), lanes_with(&["a", "m"])),
+            ("B".into(), lanes_with(&["m"])),
+        ]);
+        windows.rename_signal(&mut current, "m", "n");
+        assert_eq!(windows.plotted_signals(&current, 10), ["a", "n"]);
+        assert!(!windows.contains(&current, "m"));
     }
 
     #[test]

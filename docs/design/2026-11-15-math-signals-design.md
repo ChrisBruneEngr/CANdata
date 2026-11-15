@@ -219,9 +219,10 @@ evaluates.
 
 ## Plotting and signal sets
 
-- The plot sidebar gets a **Math** group above the channels, listing Math
-  signals valid for the active library. Invalid ones are shown greyed, with
-  the reason as a tooltip.
+- The plot sidebar gets a **Math signals** group above the channels, in both
+  list layouts, filtered by the search box. A Math signal that can't be
+  computed with the active library is marked "⚠ see Math"; plotted, it shows
+  "(no data)". Saving a plotted Math signal computes the plot again.
 - A plotted Math signal's id in `selected_signals` is `MATH:<name>`, next to
   the existing `CAN:` / `LIN:` ids.
 - `SignalSetEntry` gets an optional field `math_name: Option<String>`

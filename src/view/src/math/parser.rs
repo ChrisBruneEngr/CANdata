@@ -79,8 +79,7 @@ impl Expr {
     }
 
     /// Evaluate with the given signal values. Functions are not known yet and
-    /// give NaN. Used by the tests until plotting arrives in phase 3.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// give NaN.
     pub fn eval(&self, value_of: &dyn Fn(&str) -> f64) -> f64 {
         match self {
             Expr::Number(n) => *n,
