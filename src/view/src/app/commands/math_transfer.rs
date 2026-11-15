@@ -88,12 +88,8 @@ impl CanDataApp {
         };
         // A replaced signal may be in the editor or on the plot.
         self.math.reload_editor = true;
-        let plotted = summary.replaced.iter().any(|name| {
-            let id = format!("{}{}", crate::ui::views::chart_view::MATH_ID_PREFIX, name);
-            self.plot_windows.contains(&self.plot_lanes, &id)
-        });
-        if plotted {
-            crate::ui::views::chart_view::extract_and_update_series_data(self);
+        if !summary.replaced.is_empty() {
+            crate::ui::views::math_view::replot_if_math_plotted(self);
         }
     }
 }

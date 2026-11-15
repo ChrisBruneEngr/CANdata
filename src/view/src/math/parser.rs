@@ -140,6 +140,27 @@ pub fn position_text(source: &str, offset: usize) -> String {
     }
 }
 
+/// True if `source` uses the name `name` as a signal (not as a function).
+pub fn uses_name(source: &str, name: &str) -> bool {
+    parse(source).is_ok_and(|expr| expr.signal_names().iter().any(|(n, _)| *n == name))
+}
+
+/// `source` with every use of signal `old` changed to `new`, or `None` if it
+/// doesn't use `old` (or can't be read). Everything else is kept as written.
+pub fn rename_signal(source: &str, old: &str, new: &str) -> Option<String> {
+    let expr = parse(source).ok()?;
+    let ranges: Vec<Range<usize>> =
+        expr.signal_names().into_iter().filter(|(n, _)| *n == old).map(|(_, r)| r).collect();
+    if ranges.is_empty() {
+        return None;
+    }
+    let mut chars: Vec<char> = source.chars().collect();
+    for range in ranges.into_iter().rev() {
+        chars.splice(range, new.chars());
+    }
+    Some(chars.into_iter().collect())
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     Num(f64),
@@ -572,6 +593,27 @@ mod tests {
         assert_eq!(e.range, 0..1);
         let e = err("a + µ");
         assert_eq!(e.range, 4..5);
+    }
+
+    #[test]
+    fn rename_and_uses() {
+        assert_eq!(
+            rename_signal("Power * 2 + max(Power,
+ Power_2) + µ_Power", "Power", "P"),
+            None, // 'µ' can't be read, so nothing is renamed
+        );
+        assert_eq!(
+            rename_signal("Power*2 + max(Power,
+ Power_2)", "Power", "Motor_Power").as_deref(),
+            Some("Motor_Power*2 + max(Motor_Power,
+ Power_2)")
+        );
+        assert_eq!(rename_signal("power + 1", "Power", "P"), None);
+        // Function names are not signals.
+        assert_eq!(rename_signal("abs(x)", "abs", "y"), None);
+        assert!(uses_name("a + b * 2", "b"));
+        assert!(!uses_name("abs(a)", "abs"));
+        assert!(!uses_name("a +", "a"));
     }
 
     #[test]

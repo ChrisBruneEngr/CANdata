@@ -91,6 +91,9 @@ impl MathSignalStore {
                 "Name must start with a letter or _ and use only letters, digits and _".into(),
             );
         }
+        if let Some(function) = crate::math::functions::find_ignoring_case(name) {
+            return Err(format!("'{}' is the name of a function", function.name));
+        }
         match self.position(name) {
             Some(i) if Some(i) != editing => {
                 Err(format!("A Math signal named '{}' already exists", self.signals[i].name))
@@ -345,6 +348,7 @@ mod tests {
         // ...but a signal may keep (or re-case) its own name.
         assert!(store.validate_name("MOTOR_POWER", Some(0)).is_ok());
         assert!(store.validate_name("Slip", Some(0)).is_err());
+        assert_eq!(store.validate_name("Max", None).unwrap_err(), "'max' is the name of a function");
     }
 
     #[test]

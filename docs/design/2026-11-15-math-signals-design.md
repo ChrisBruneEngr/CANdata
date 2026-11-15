@@ -123,9 +123,18 @@ Only the equation text is saved. It is parsed again on load, so a file edited
 by hand, or one from a newer version, is still checked.
 
 **Name rules.** A Math signal name must be an identifier, must be unique among
-Math signals (ignoring case), and must not be a function name. It may match a
-decoded signal name. In that case the plot sidebar tells them apart by group
-(see below). Equations always refer to decoded signals until phase 5.
+Math signals (ignoring case), and must not be a function name (ignoring
+case). It may match a decoded signal name, but an equation that uses that name
+is then reported as ambiguous until the Math signal is renamed.
+
+**Math of Math.** An equation may use other Math signals by name; the signal
+browser lists them under "Math signals". Checking follows them: a Math input
+with a problem is reported ("Math signal 'B' has a problem: ..."), and so is a
+loop, with its path ("Loop: A → B → C → A"). Evaluation computes each Math
+input first, once per plot refresh, and uses its points like a decoded
+signal's. Renaming a Math signal rewrites the equations that use it; deleting
+one names them in the confirmation. Saving or importing recomputes the plot if
+any Math signal is plotted.
 
 ## Equation language
 
@@ -307,8 +316,8 @@ output points: with sample-and-hold that is uneven, so for `derivative`,
 5. **Functions.** The functions list, `abs sqrt exp ln log10 sin cos tan
    round min max clamp`, comparisons and `if`, and the time-based functions
    `derivative`, `integral` and `lowpass`.
-6. **Math of Math (optional).** Equations may name other Math signals. Evaluate
-   in dependency order, and report loops (`A` uses `B` uses `A`) as an error.
+6. **Math of Math.** Equations may name other Math signals (see *Data model*).
+   Inputs are evaluated first; loops are reported with their path.
 
 ## Settled questions
 

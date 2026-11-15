@@ -1609,15 +1609,43 @@ fn math_series_points(
     name: &str,
     message_count: usize,
 ) -> Result<(Vec<DataPoint>, Option<String>), String> {
-    use crate::math::resolve::{Check, SignalIndex, check};
+    let index = crate::math::resolve::SignalIndex::from_app(app);
+    let samples = math_samples(app, &index, name, message_count, &mut std::collections::HashMap::new())?;
+    let unit = app
+        .math_store
+        .signals
+        .iter()
+        .find(|s| s.name == name)
+        .map(|s| s.unit.trim().to_string())
+        .filter(|u| !u.is_empty());
+    let points = samples
+        .into_iter()
+        .map(|(time, value)| DataPoint { time, value, index: 0 })
+        .collect();
+    Ok((points, unit))
+}
+
+/// The (time, value) points of Math signal `name`. Math signals it uses are
+/// computed first, each once (`cache`); checking has ruled out loops.
+fn math_samples(
+    app: &CanDataApp,
+    index: &crate::math::resolve::SignalIndex,
+    name: &str,
+    message_count: usize,
+    cache: &mut std::collections::HashMap<String, Vec<(f64, f64)>>,
+) -> Result<Vec<(f64, f64)>, String> {
+    use crate::math::resolve::{Check, check_named};
+    if let Some(samples) = cache.get(name) {
+        return Ok(samples.clone());
+    }
     let signal = app
         .math_store
         .signals
         .iter()
         .find(|s| s.name == name)
         .ok_or_else(|| format!("There is no Math signal named '{}'", name))?;
-    let signals = match check(&signal.equation, &SignalIndex::from_app(app)) {
-        Check::Ok { signals } => signals,
+    let (signals, math) = match check_named(Some(name), &signal.equation, index) {
+        Check::Ok { signals, math } => (signals, math),
         other => return Err(other.summary(&signal.equation)),
     };
     let expr = crate::math::parser::parse(&signal.equation).map_err(|e| e.message)?;
@@ -1638,13 +1666,14 @@ fn math_series_points(
         }
         inputs.insert(signal_name, samples);
     }
+    for input in math {
+        let samples = math_samples(app, index, &input, message_count, cache)
+            .map_err(|e| format!("{}: {}", input, e))?;
+        inputs.insert(input, samples);
+    }
     let values = crate::math::eval::evaluate(&expr, &inputs, signal.time_mode)?;
-    let points = values
-        .into_iter()
-        .map(|(time, value)| DataPoint { time, value, index: 0 })
-        .collect();
-    let unit = (!signal.unit.trim().is_empty()).then(|| signal.unit.trim().to_string());
-    Ok((points, unit))
+    cache.insert(name.to_string(), values.clone());
+    Ok(values)
 }
 
 /// Decode every sample of one signal from the log: its points (index 0) and

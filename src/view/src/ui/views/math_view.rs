@@ -14,7 +14,7 @@ use crate::library::math_signals::{
     ConflictChoice, Interpolation, MathSignal, TimeMode, save_math_signal_store,
 };
 use crate::ui::views::chart_view::MATH_ID_PREFIX;
-use crate::math::resolve::{Check, SignalIndex, check};
+use crate::math::resolve::{Check, SignalIndex, check, check_named};
 use crate::models::SignalListMode;
 use gpui::prelude::*;
 use gpui::*;
@@ -204,7 +204,7 @@ fn save(app: &mut CanDataApp, cx: &mut Context<CanDataApp>) {
     if old_name != name {
         rename_everywhere(app, &old_name, &name);
     }
-    replot_if_plotted(app, &name);
+    replot_if_math_plotted(app);
     cx.notify();
 }
 
@@ -215,6 +215,17 @@ fn rename_everywhere(app: &mut CanDataApp, old: &str, new: &str) {
     for id in app.selected_signals.iter_mut().filter(|id| **id == old_id) {
         *id = new_id.clone();
     }
+    // Other Math signals that use it.
+    let mut changed = false;
+    for signal in &mut app.math_store.signals {
+        if let Some(equation) = crate::math::parser::rename_signal(&signal.equation, old, new) {
+            signal.equation = equation;
+            changed = true;
+        }
+    }
+    if changed {
+        persist(app, format!("Math signal {} renamed; equations that use it updated", new));
+    }
     if app.signal_set_store.rename_math_signal(old, new) {
         if let Err(e) = crate::library::save_signal_set_store(&app.signal_set_store, app.config_file_path.as_deref()) {
             app.status_msg = format!("❌ {}", e).into();
@@ -222,10 +233,11 @@ fn rename_everywhere(app: &mut CanDataApp, old: &str, new: &str) {
     }
 }
 
-/// Compute the plot again if it shows this Math signal.
-fn replot_if_plotted(app: &mut CanDataApp, name: &str) {
-    let id = format!("{}{}", MATH_ID_PREFIX, name);
-    if app.plot_windows.contains(&app.plot_lanes, &id) {
+/// Compute the plot again if it shows any Math signal, since Math signals
+/// can use each other.
+pub fn replot_if_math_plotted(app: &mut CanDataApp) {
+    let plotted = app.plot_windows.plotted_signals(&app.plot_lanes, usize::MAX);
+    if plotted.iter().any(|id| id.starts_with(MATH_ID_PREFIX)) {
         crate::ui::views::chart_view::extract_and_update_series_data(app);
     }
 }
@@ -239,7 +251,7 @@ fn delete(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<CanDataApp
     let removed = app.math_store.signals.remove(i);
     app.math.selected = None;
     persist(app, format!("Math signal {} deleted", removed.name));
-    replot_if_plotted(app, &removed.name);
+    replot_if_math_plotted(app);
     load_editor(app, window, cx);
     cx.notify();
 }
@@ -343,10 +355,32 @@ fn browser_entries(app: &CanDataApp, filter: &str) -> Vec<BrowserEntry> {
 /// signal list: grouped by channel and message, or one alphabetical list.
 pub fn browser_rows(app: &CanDataApp, filter: &str) -> Vec<BrowserRow> {
     let entries = browser_entries(app, filter);
-    match app.app_config.signal_list_mode {
+    let mut rows = math_rows(app, filter);
+    rows.extend(match app.app_config.signal_list_mode {
         SignalListMode::Grouped => grouped_rows(entries),
         SignalListMode::Alphabetical => alphabetical_rows(entries),
+    });
+    rows
+}
+
+/// The other Math signals matching `filter`, under their own heading, so
+/// they can be used as inputs.
+fn math_rows(app: &CanDataApp, filter: &str) -> Vec<BrowserRow> {
+    let filter = filter.trim().to_lowercase();
+    let editing = app.math.selected.and_then(|i| app.math_store.signals.get(i)).map(|s| s.name.as_str());
+    let mut signals: Vec<_> = app
+        .math_store
+        .signals
+        .iter()
+        .filter(|s| Some(s.name.as_str()) != editing && s.name.to_lowercase().contains(&filter))
+        .collect();
+    if signals.is_empty() {
+        return Vec::new();
     }
+    signals.sort_by_key(|s| s.name.to_lowercase());
+    let mut rows = vec![BrowserRow::Channel("Math signals".into())];
+    rows.extend(signals.into_iter().map(|s| BrowserRow::Signal { name: s.name.clone(), unit: s.unit.clone(), note: None }));
+    rows
 }
 
 fn grouped_rows(entries: Vec<BrowserEntry>) -> Vec<BrowserRow> {
@@ -578,7 +612,7 @@ fn render_signal_list(
         .map(|(i, signal)| {
             let is_selected = selected == Some(i);
             let view = view.clone();
-            let (mark, mark_color) = status_mark(&check(&signal.equation, index));
+            let (mark, mark_color) = status_mark(&check_named(Some(&signal.name), &signal.equation, index));
             div()
                 .id(("math-row", i))
                 .px_3()
@@ -819,7 +853,7 @@ fn render_editor(
     let dirty = is_dirty(app, cx);
     let name_error = name_error(app, cx);
     let equation = equation_input.read(cx).value().to_string();
-    let equation_check = check(&equation, index);
+    let equation_check = check_named(Some(&signal.name), &equation, index);
     let (_, status_color) = status_mark(&equation_check);
     let time_mode = editor_time_mode(app, cx);
     let (resample, interpolation) = (app.math.resample, app.math.interpolation);
@@ -848,15 +882,21 @@ fn render_editor(
         el = el.child(confirm_bar(
             {
                 let sets = app.signal_set_store.sets_using_math_signal(&signal.name);
-                if sets.is_empty() {
-                    format!("Delete {}? This cannot be undone.", signal.name)
-                } else {
-                    format!(
-                        "Delete {}? It is used in signal sets: {}. This cannot be undone.",
-                        signal.name,
-                        sets.join(", ")
-                    )
+                let users: Vec<&str> = app
+                    .math_store
+                    .signals
+                    .iter()
+                    .filter(|s| s.name != signal.name && crate::math::parser::uses_name(&s.equation, &signal.name))
+                    .map(|s| s.name.as_str())
+                    .collect();
+                let mut message = format!("Delete {}?", signal.name);
+                if !users.is_empty() {
+                    message += &format!(" Math signals {} use it.", users.join(", "));
                 }
+                if !sets.is_empty() {
+                    message += &format!(" It is in signal sets: {}.", sets.join(", "));
+                }
+                message + " This cannot be undone."
             },
             vec![
                 small_button("math-confirm-delete", "Delete", true, move |window, cx| {
