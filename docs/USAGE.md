@@ -11,12 +11,13 @@ A practical manual for using CANdata — the BLF log viewer, signal plotter, and
 3. [Loading BLF Files](#loading-blf-files)
 4. [Log View](#log-view)
 5. [Plot View](#plot-view)
-6. [Library Management](#library-management)
-7. [Export & Import Libraries](#export--import-libraries)
-8. [Status Bar Reference](#status-bar-reference)
-9. [Keyboard Shortcuts](#keyboard-shortcuts)
-10. [Persisted State](#persisted-state)
-11. [Troubleshooting](#troubleshooting)
+6. [Math Signals](#math-signals)
+7. [Library Management](#library-management)
+8. [Export & Import Libraries](#export--import-libraries)
+9. [Status Bar Reference](#status-bar-reference)
+10. [Keyboard Shortcuts](#keyboard-shortcuts)
+11. [Persisted State](#persisted-state)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -30,17 +31,19 @@ A practical manual for using CANdata — the BLF log viewer, signal plotter, and
 
 For a fresh install with no libraries configured yet, go to **Library** (top bar) → **+ New Library**, add a version, then add channels pointing to your `.dbc` (CAN) or `.ldf` (LIN) files.
 
+To compute new signals from decoded ones, see [Math Signals](#math-signals).
+
 ---
 
 ## Window Layout
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  File  Library                   Settings  Help   _  []  X │ ← Top bar (36px)
+│  File  Library  Math             Settings  Help   _  []  X │ ← Top bar (36px)
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
 │                                                            │
-│                  Content area                              │ ← Log / Plot / Library
+│                  Content area                              │ ← Log / Plot / Library / Math
 │                                                            │
 │                                                            │
 ├────────────────────────────────────────────────────────────┤
@@ -48,8 +51,8 @@ For a fresh install with no libraries configured yet, go to **Library** (top bar
 └────────────────────────────────────────────────────────────┘
 ```
 
-- **Top bar** — File menu, Library button, Settings and Help menus, window controls.
-- **Content area** — switches between Log / Plot / Library.
+- **Top bar** — File menu, Library and Math buttons, Settings and Help menus, window controls.
+- **Content area** — switches between Log / Plot / Library / Math.
 - **Status bar** — file info, message/DBC/LDF counts, status messages, active library, view name, and the Log ⇄ Plot toggle.
 
 ---
@@ -124,7 +127,7 @@ Switch via the **Plot** button (bottom-left of the status bar). Renders one char
 
 - Header shows signal count.
 - **Search box** filters by signal name, message name, or ID.
-- Items are grouped by channel (CAN blue / LIN yellow), then message, then signal.
+- Items are grouped by channel (CAN blue / LIN yellow), then message, then signal. [Math signals](#math-signals) are listed first, under their own heading.
 - Channels that have a configured library mapping but aren't loaded show a **Load** button — click to load that library version.
 - Drag a signal onto a lane to plot it there, or double-click it to add it to the selected lane.
 - A signal's square is filled with its line colour while it is plotted. If it is in several lanes, this is its colour in the first of them.
@@ -177,7 +180,7 @@ Signals are plotted in lanes, which share the available height and scroll once t
 - **Delete Lane** deletes the selected lane and stops plotting its signals. The last lane is emptied instead of deleted.
 - **↑ Move Up** and **↓ Move Down** swap the selected lane with its neighbour.
 - **Points** shows or hides a dot at each sample in the selected lane. It's on for new lanes.
-- A signal set saves the lanes with their signals, Y limits and Points setting, and loading it restores them. Sets saved before lanes existed open with one signal per lane.
+- A signal set saves the lanes with their signals, Y limits and Points setting, and loading it restores them. Math signals are saved by name. Sets saved before lanes existed open with one signal per lane.
 - Up to 20 signals are plotted; a warning appears above the lanes beyond that.
 
 ### Y-axis range
@@ -191,6 +194,131 @@ The **Y** controls above the lanes apply to the selected lane. With **Auto** on,
 ### Empty lanes
 
 An empty lane shows a reminder to add a signal. A lane whose signals have no data in the log says so, and each of those signals is marked *(no data)* in its header.
+
+---
+
+## Math Signals
+
+A Math signal is a new signal worked out from an equation of decoded signals, for example
+
+```
+Motor_Power = Motor_Speed * Motor_Torque / 9549
+```
+
+Math signals are plotted, read at the cursor and saved in signal sets like any other signal. They are global: one list for the whole app, not one per library. An equation is checked against whichever library is active.
+
+### The Math screen
+
+Click **Math** in the top bar (right of **Library**).
+
+```
+┌────────────────────────────────────────────┬────────────────────────────┐
+│ Math signals  Import… Export… New Delete   │ Signals    [search____]    │
+│ ✓ Motor_Power  kW  Motor_Speed * …         │ Math signals               │
+│ ⚠ Wheel_Slip   %   (A - B) / B * 100       │   Motor_Power              │
+│                                            │ Channel 1 (CAN)            │
+│ Name [Motor_Power]   Unit [kW]             │   Motor (0x100)            │
+│ ┌───────────────────────────────────┐      │     Motor_Speed   rpm      │
+│ │ Motor_Speed * Motor_Torque / 9549 │      │     Motor_Torque  Nm       │
+│ └───────────────────────────────────┘      │                            │
+│ ✓ OK                                       │ Functions                  │
+│ Time (•) Sample and hold ( ) Resample      │   abs(x)   Absolute value  │
+│                       Revert  Save         │   sqrt(x)  Square root     │
+└────────────────────────────────────────────┴────────────────────────────┘
+```
+
+- **List (top left).** Every Math signal with its unit and equation. The mark in front shows whether it can be computed with the active library: ✓ yes, ⚠ the equation reads fine but a name can't be used with this library, ✗ the equation can't be read. A `•` after the name means the editor has unsaved changes.
+- **Editor (below the list).** Click a row to edit its name, unit, equation and time mode, then click **Save**, or **Revert** to go back to what is saved. If you click another row with unsaved changes, CANdata asks whether to discard them.
+- **Signals (right).** Your other Math signals, then the signals of the active library. They are grouped by message or listed alphabetically, following **Settings → Plot signal list**, and the search box filters them. **Double-click** a signal to insert its name into the equation at the cursor.
+- **Functions (bottom right).** Double-click a function to insert it with the cursor between its brackets.
+
+**New** adds a Math signal named `Math_1`, `Math_2`, … and puts the cursor in **Name** so you can rename it. **Delete** asks first, and names the Math signals and signal sets that use the one being deleted.
+
+### Names
+
+A Math signal name starts with a letter or `_` and contains only letters, digits and `_`. It must not match another Math signal (capitals don't count as different) or a function name. To rename, edit **Name** and click **Save**: plot lanes, saved signal sets and other Math signals' equations are updated to the new name.
+
+### Writing equations
+
+Use signal names exactly as they appear in the DBC/LDF, with no channel or message prefix. Spaces and line breaks are ignored.
+
+| You write | Meaning |
+|---|---|
+| `+ - * /` | add, subtract, multiply, divide |
+| `^` | power. `2^3^2` is `2^(3^2)` = 512, and `-2^2` is −4 |
+| `( )` | brackets |
+| `12`, `1.5`, `.5`, `1e-3` | numbers |
+| `< <= > >= == !=` | comparisons: 1 when true, 0 when false. Only one at a time without brackets |
+| `name(…)` | a function, see below |
+
+Examples:
+
+```
+Motor_Speed * Motor_Torque / 9549
+(Wheel_FL + Wheel_FR) / 2
+if(Motor_Speed > 100, Motor_Torque, 0)
+(Gear == 3) * Vehicle_Speed
+lowpass(derivative(Vehicle_Speed / 3.6), 0.2)
+Motor_Power / 1000          ← uses the Math signal Motor_Power
+```
+
+### Checking
+
+The line under the equation updates as you type:
+
+- **✓ OK**: every name is found and the Math signal can be plotted.
+- **✗ …** — the equation can't be read, with where the problem is, such as `✗ A value is missing after '*' at column 14` (or `line 2, column 3` for equations on several lines). **Save** is off until it is fixed. An empty equation counts as one.
+- **⚠ …** — the equation reads fine, but something can't be used with the active library:
+  - `Unknown signal 'motor_speed' (did you mean 'Motor_Speed'?)`. Names must match exactly, including capitals.
+  - `'Speed' is in more than one message (Ch1 0x200, Ch2 0x300)`. The name can't be told apart; equations use plain names only.
+  - `Unknown function` or `sqrt takes 1 value, not 2 (sqrt(x))`.
+  - `Math signal 'B' has a problem: …` when a Math signal it uses can't be computed.
+  - `Loop: A → B → A` when Math signals use each other in a circle.
+  - `'X' is both a signal and a Math signal`. Rename the Math signal.
+- **⚠ Syntax OK. Activate a library to check the signal names.** when no library is active.
+
+A ⚠ doesn't stop **Save**: the equation may be meant for another library.
+
+### Functions
+
+| Function | Gives |
+|---|---|
+| `abs(x)`, `sqrt(x)`, `exp(x)`, `ln(x)`, `log10(x)`, `round(x)` | the usual value of x |
+| `sin(x)`, `cos(x)`, `tan(x)` | trigonometry, x in radians |
+| `min(a, b, ...)`, `max(a, b, ...)` | smallest or largest of two or more values |
+| `clamp(x, low, high)` | x kept between low and high |
+| `if(condition, then, else)` | `then` where the condition is not 0, otherwise `else` |
+| `derivative(x)` | change of x per second since the previous point |
+| `integral(x)` | running total of x over time, starting at 0 at the first point |
+| `lowpass(x, seconds)` | x smoothed by a first-order filter with that time constant. 0 or less passes x through |
+
+### Time: lining up signals
+
+Signals from different messages are sent at different times, so CANdata has to decide when an equation has a value. Choose per Math signal with **Time**:
+
+- **Sample and hold** (default). A point whenever any input gets a new sample; every other input keeps its latest value. Signals from the same message line up exactly.
+- **Resample** at a rate in Hz. A point every 1/rate seconds, with each input read by **Hold** (its latest value) or **Linear** (a straight line between the samples either side).
+
+Either way, the Math signal starts once every input has received its first sample. Points that come out undefined, such as a division by zero or the square root of a negative number, are left out. A rate that would give more than 10 million points over the log is refused.
+
+`derivative`, `integral` and `lowpass` use the spacing of the points. With sample and hold that spacing is uneven, so a resample rate usually gives smoother results for them.
+
+### Plotting Math signals
+
+In **Plot**, a **Math signals** group sits at the top of the signal list, in both list layouts, and the search box filters it. Drag a Math signal to a lane or double-click it, the same as any signal. A Math signal that can't be computed with the active library is marked **⚠ see Math**; plotted, it shows *(no data)*.
+
+Saving a Math signal on the Math screen recomputes the plot, so changes show straight away, including in Math signals that use it.
+
+### Export & import Math signals
+
+- **Export…** saves every Math signal to one `.cvmath` file (the default name is `math_signals.cvmath`).
+- **Import…** adds the Math signals from a `.cvmath` file. If some names are already used, a bar lists them and offers, for all of them at once:
+  - **Replace**: the imported equations overwrite yours. The existing spelling of the name is kept, so plots and signal sets still match.
+  - **Keep both**: the imported ones are added as `Name_2`, `Name_3`, ….
+  - **Skip**: yours are kept and those imported ones are dropped.
+  - **Cancel import**: nothing is added.
+
+A `.cvmath` file is pretty-printed JSON: `format` (`"candata-math"`), `format_version` (currently `1`), `exported_at`, and `signals`, each with its name, unit, equation and time mode. Files from a newer version of CANdata, or with invalid or repeated names, are refused.
 
 ---
 
@@ -294,7 +422,7 @@ The 24-px bar at the bottom of the window.
 | **status_msg** | Transient status text (Loading…, Ready, errors). Truncated if long. |
 | **Library badge** | `📚 <lib_name> / <version>` when a library version is active. |
 | **Cancel** | `❌ Cancel` shown only during loading. Click to abort pending loads. |
-| **view name** | `log mode` / `plot mode` / `library mode`. |
+| **view name** | `log mode` / `plot mode` / `library mode` / `math mode`. |
 
 ### Loaded Files popover
 
@@ -352,6 +480,8 @@ CANdata is portable: everything it saves lives in the folder that holds the exec
 - Apply to Plot
 - After importing a `.cvlib` library file
 
+Math signals are saved separately, in `math_signals.json`, each time one is created, saved, renamed, deleted or imported. A `math_signals.json` that can't be read is renamed to `math_signals.json.bad` rather than overwritten, so its equations aren't lost.
+
 Contents:
 
 - `libraries` — full library / version / channel hierarchy.
@@ -360,13 +490,14 @@ Contents:
 
 ### Library files on disk
 
-DBC/LDF files are copied into `libraries/<lib>/<version>/<channel>/` when you add a channel or import a library. Saved plot signal sets are in `signal_sets.json`. All of these sit next to the executable:
+DBC/LDF files are copied into `libraries/<lib>/<version>/<channel>/` when you add a channel or import a library. Saved plot signal sets are in `signal_sets.json` and Math signals in `math_signals.json`. All of these sit next to the executable:
 
 ```
 <exe folder>/
 ├── candata.exe
 ├── multi_channel_config.json
 ├── signal_sets.json
+├── math_signals.json
 └── libraries/
 ```
 
@@ -395,9 +526,15 @@ The file loaded but had parse errors. Click the segment to open the Loaded Files
 - If the **Select signal library** overlay appears, pick a version or click ✕ to dismiss.
 - Click **Load** next to unloaded channels in the signal sidebar to load their library version.
 
+### A Math signal shows *(no data)* or **⚠ see Math**
+
+- Open **Math** and select it: the line under the equation says what's wrong, such as an unknown or ambiguous signal name, or a Math signal it uses that has a problem.
+- Names must match the DBC/LDF exactly, including capitals, and the library that has them must be active.
+- If the equation shows ✓ OK but the plot is still empty, one of its signals has no samples in the loaded log.
+
 ### Import fails
 
-- The file must be a `.cvlib` file exported by CANdata (or by can-viewer). A newer format version than this build understands is rejected.
+- The file must be a `.cvlib` file exported by CANdata (or by can-viewer), or a `.cvmath` file for Math signals. A newer format version than this build understands is rejected.
 - Check the status message at the bottom for the reason.
 
 ### A channel path is red: "Remote paths are not supported"

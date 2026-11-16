@@ -41,6 +41,13 @@ CANdata runs on Windows 10 and 11 (x64). It is portable and makes no network con
 - Interactive plot with lanes, zoom, pan, cursor readout and auto or fixed Y ranges
 - Signals with no data in the recording are marked in the plot
 
+**Math signals**
+- Define new signals as equations of decoded ones, such as `Motor_Power = Motor_Speed * Motor_Torque / 9549`, and plot them like any other signal
+- Equations are checked as you type, with the line and column of any mistake
+- Functions (`abs`, `sqrt`, `min`, `max`, `clamp`, `if`, `derivative`, `integral`, `lowpass` and more) and comparisons
+- Line up signals sent at different times by sample-and-hold, or resample at a set rate with hold or linear interpolation
+- Math signals can use other Math signals, are saved in signal sets, and move between machines as `.cvmath` files
+
 **Multiple recordings**
 - Load several BLF files onto one timeline, aligned by their absolute timestamps
 - Drag and drop `.blf` files or a folder; a confirmation appears before loading more than 1 GB
@@ -54,9 +61,9 @@ CANdata runs on Windows 10 and 11 (x64). It is portable and makes no network con
 |:---:|:---:|
 | <img src="assets/screenshots/log-view.png" width="400" alt="CANdata log view" /> | <img src="assets/screenshots/plot-view.png" width="400" alt="CANdata plot view" /> |
 
-| Library view |
-|:---:|
-| <img src="assets/screenshots/library-view.png" width="600" alt="CANdata library view" /> |
+| Library view | Math view |
+|:---:|:---:|
+| <img src="assets/screenshots/library-view.png" width="400" alt="CANdata library view" /> | <img src="assets/screenshots/math-view.png" width="400" alt="CANdata Math view" /> |
 
 ---
 
@@ -69,7 +76,7 @@ Download the latest release from the [Releases page](https://github.com/ChrisBru
 
 Both include the user guide and a demo database with a matching recording in `samples\`.
 
-CANdata saves its settings (`multi_channel_config.json`), signal sets (`signal_sets.json`) and library files (`libraries\`) next to `candata.exe`. Copy the folder to move your whole setup. Keep it out of `C:\Program Files`, which is read-only for normal users.
+CANdata saves its settings (`multi_channel_config.json`), signal sets (`signal_sets.json`), Math signals (`math_signals.json`) and library files (`libraries\`) next to `candata.exe`. Copy the folder to move your whole setup. Keep it out of `C:\Program Files`, which is read-only for normal users.
 
 ---
 
@@ -78,10 +85,11 @@ CANdata saves its settings (`multi_channel_config.json`), signal sets (`signal_s
 1. Start CANdata and drag a `.blf` file onto the window, or use **File → Open BLF...** (replaces what's loaded) or **File → Open Multiple BLF...** (adds to it).
 2. Click **Library**, create a library and a version, and add a channel that points to your DBC or LDF file. Activate the version.
 3. Browse the decoded frames in the **Log** view, or switch to **Plot** (bottom-left of the status bar) and select signals from the sidebar.
+4. To compute a new signal, click **Math**, then **New**, type an equation and click **Save**. It appears under **Math signals** at the top of the plot's signal list.
 
 To try it with demo data, use `samples\demo.blf` and `samples\demo.dbc` (channel 1) from the installed or unzipped folder.
 
-The [user guide](docs/USAGE.md) covers every view, library management, signal sets, export/import and troubleshooting.
+The [user guide](docs/USAGE.md) covers every view, Math signals, library management, signal sets, export/import and troubleshooting.
 
 ---
 
