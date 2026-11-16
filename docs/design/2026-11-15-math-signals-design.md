@@ -95,6 +95,9 @@ pub struct MathSignal {
     pub equation: String,
     #[serde(default)]
     pub time_mode: TimeMode,
+    /// Decimal places at the plot cursor, 0 to 9 (default 3).
+    #[serde(default = "default_decimals")]
+    pub decimals: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -118,6 +121,10 @@ pub struct MathSignalStore {
     pub signals: Vec<MathSignal>,
 }
 ```
+
+**Decimals** (right of Unit on the Math screen) sets how many decimal places
+the plot shows for the Math signal's value at the cursor, from 0 to 9. Files
+saved before the setting existed get 3, the value that was fixed before.
 
 Only the equation text is saved. It is parsed again on load, so a file edited
 by hand, or one from a newer version, is still checked.

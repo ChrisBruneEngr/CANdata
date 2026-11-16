@@ -2212,9 +2212,14 @@ fn update_cursor_values(app: &mut CanDataApp) {
         if !series.name.starts_with(MATH_ID_PREFIX) {
             continue;
         }
+        let decimals = series
+            .name
+            .strip_prefix(MATH_ID_PREFIX)
+            .and_then(|name| app.math_store.signals.iter().find(|s| s.name == name))
+            .map_or(crate::library::math_signals::DEFAULT_DECIMALS, |s| s.decimals);
         let count = series.points.partition_point(|p| p.time <= cursor);
         if let Some(point) = count.checked_sub(1).map(|i| series.points[i]) {
-            values.insert(series.name.clone(), format_cursor_value(point.value, 3));
+            values.insert(series.name.clone(), format_cursor_value(point.value, decimals as usize));
         }
     }
 

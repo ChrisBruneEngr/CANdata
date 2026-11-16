@@ -21,6 +21,27 @@ pub struct MathSignal {
     pub equation: String,
     #[serde(default)]
     pub time_mode: TimeMode,
+    /// Decimal places for values shown at the plot cursor. Files saved
+    /// before this setting existed get the old fixed 3.
+    #[serde(default = "default_decimals")]
+    pub decimals: u8,
+}
+
+/// Decimal places a new Math signal shows.
+pub const DEFAULT_DECIMALS: u8 = 3;
+/// Most decimal places a Math signal can show.
+pub const MAX_DECIMALS: u8 = 9;
+
+fn default_decimals() -> u8 {
+    DEFAULT_DECIMALS
+}
+
+/// Read the Decimals box: a whole number from 0 to `MAX_DECIMALS`.
+pub fn parse_decimals(text: &str) -> Result<u8, String> {
+    match text.trim().parse::<u8>() {
+        Ok(n) if n <= MAX_DECIMALS => Ok(n),
+        _ => Err(format!("Decimals must be a whole number from 0 to {}", MAX_DECIMALS)),
+    }
 }
 
 impl MathSignal {
@@ -31,6 +52,7 @@ impl MathSignal {
             unit: String::new(),
             equation: String::new(),
             time_mode: TimeMode::default(),
+            decimals: DEFAULT_DECIMALS,
         }
     }
 }
@@ -368,6 +390,7 @@ mod tests {
                     unit: "kW".into(),
                     equation: "Motor_Speed * Motor_Torque / 9549".into(),
                     time_mode: TimeMode::SampleAndHold,
+                    decimals: 1,
                 },
                 MathSignal {
                     name: "Slip".into(),
@@ -377,6 +400,7 @@ mod tests {
                         rate_hz: 100.0,
                         interpolation: Interpolation::Linear,
                     },
+                    decimals: 0,
                 },
             ],
         };
@@ -405,6 +429,17 @@ mod tests {
             store.signals[1].time_mode,
             TimeMode::Resample { rate_hz: 10.0, interpolation: Interpolation::Hold }
         );
+    }
+
+    #[test]
+    fn decimals() {
+        assert_eq!(MathSignal::new("A").decimals, 3);
+        assert_eq!(parse_decimals(" 2 "), Ok(2));
+        assert_eq!(parse_decimals("0"), Ok(0));
+        assert_eq!(parse_decimals("9"), Ok(9));
+        for bad in ["10", "-1", "1.5", "", "two"] {
+            assert!(parse_decimals(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

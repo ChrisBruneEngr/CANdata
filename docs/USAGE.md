@@ -217,7 +217,7 @@ Click **Math** in the top bar (right of **Library**).
 │ ✓ Motor_Power  kW  Motor_Speed * …         │ Math signals               │
 │ ⚠ Wheel_Slip   %   (A - B) / B * 100       │   Motor_Power              │
 │                                            │ Channel 1 (CAN)            │
-│ Name [Motor_Power]   Unit [kW]             │   Motor (0x100)            │
+│ Name [Motor_Power] Unit [kW] Decimals [1]  │   Motor (0x100)            │
 │ ┌───────────────────────────────────┐      │     Motor_Speed   rpm      │
 │ │ Motor_Speed * Motor_Torque / 9549 │      │     Motor_Torque  Nm       │
 │ └───────────────────────────────────┘      │                            │
@@ -228,11 +228,15 @@ Click **Math** in the top bar (right of **Library**).
 ```
 
 - **List (top left).** Every Math signal with its unit and equation. The mark in front shows whether it can be computed with the active library: ✓ yes, ⚠ the equation reads fine but a name can't be used with this library, ✗ the equation can't be read. A `•` after the name means the editor has unsaved changes.
-- **Editor (below the list).** Click a row to edit its name, unit, equation and time mode, then click **Save**, or **Revert** to go back to what is saved. If you click another row with unsaved changes, CANdata asks whether to discard them.
+- **Editor (below the list).** Click a row to edit its name, unit, decimals, equation and time mode, then click **Save**, or **Revert** to go back to what is saved. If you click another row with unsaved changes, CANdata asks whether to discard them.
 - **Signals (right).** Your other Math signals, then the signals of the active library. They are grouped by message or listed alphabetically, following **Settings → Plot signal list**, and the search box filters them. **Double-click** a signal to insert its name into the equation at the cursor.
 - **Functions (bottom right).** Double-click a function to insert it with the cursor between its brackets.
 
 **New** adds a Math signal named `Math_1`, `Math_2`, … and puts the cursor in **Name** so you can rename it. **Delete** asks first, and names the Math signals and signal sets that use the one being deleted.
+
+### Decimals
+
+**Decimals**, to the right of **Unit**, sets how many decimal places the plot shows for this Math signal's value at the cursor, in the lane header and the signal list. Enter a whole number from 0 to 9. New Math signals, and ones saved before this setting existed, show 3.
 
 ### Names
 
