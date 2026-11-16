@@ -11,7 +11,8 @@
 
 use crate::app::CanDataApp;
 use crate::library::math_signals::{
-    ConflictChoice, Interpolation, MathSignal, TimeMode, save_math_signal_store,
+    ConflictChoice, DEFAULT_DECIMALS, Interpolation, MathSignal, TimeMode, parse_decimals,
+    save_math_signal_store,
 };
 use crate::ui::views::chart_view::MATH_ID_PREFIX;
 use crate::math::resolve::{Check, SignalIndex, check, check_named};
@@ -29,6 +30,7 @@ pub struct MathViewState {
     pub selected: Option<usize>,
     pub name_input: Option<Entity<InputState>>,
     pub unit_input: Option<Entity<InputState>>,
+    pub decimals_input: Option<Entity<InputState>>,
     pub equation_input: Option<Entity<InputState>>,
     pub search_input: Option<Entity<InputState>>,
     /// Waiting for the user to discard or keep unsaved editor changes.
@@ -98,6 +100,17 @@ fn editor_time_mode(app: &CanDataApp, cx: &App) -> Result<TimeMode, String> {
     }
 }
 
+/// The decimal places typed in the editor, or why they can't be used.
+fn editor_decimals(app: &CanDataApp, cx: &App) -> Result<u8, String> {
+    let text = app
+        .math
+        .decimals_input
+        .as_ref()
+        .map(|i| i.read(cx).value().to_string())
+        .unwrap_or_default();
+    parse_decimals(&text)
+}
+
 /// True if the editor holds changes that are not saved.
 pub fn is_dirty(app: &CanDataApp, cx: &App) -> bool {
     let Some(signal) = app.math.selected.and_then(|i| app.math_store.signals.get(i)) else {
@@ -106,6 +119,7 @@ pub fn is_dirty(app: &CanDataApp, cx: &App) -> bool {
     editor_values(app, cx).is_some_and(|(name, unit, equation)| {
         name.trim() != signal.name || unit.trim() != signal.unit || equation != signal.equation
     }) || editor_time_mode(app, cx) != Ok(signal.time_mode)
+        || editor_decimals(app, cx) != Ok(signal.decimals)
 }
 
 /// Ask for an action that replaces the editor contents. With unsaved changes
@@ -144,9 +158,9 @@ fn perform(app: &mut CanDataApp, action: PendingMathAction, window: &mut Window,
 /// Fill the editor from the selected Math signal (or empty it).
 fn load_editor(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<CanDataApp>) {
     let signal = app.math.selected.and_then(|i| app.math_store.signals.get(i)).cloned();
-    let (name, unit, equation, time_mode) = signal
-        .map(|s| (s.name, s.unit, s.equation, s.time_mode))
-        .unwrap_or_default();
+    let (name, unit, equation, time_mode, decimals) = signal
+        .map(|s| (s.name, s.unit, s.equation, s.time_mode, s.decimals))
+        .unwrap_or((String::new(), String::new(), String::new(), TimeMode::default(), DEFAULT_DECIMALS));
     let (resample, interpolation, rate) = match time_mode {
         TimeMode::SampleAndHold => (false, Interpolation::Hold, DEFAULT_RATE_HZ.to_string()),
         TimeMode::Resample { rate_hz, interpolation } => (true, interpolation, rate_hz.to_string()),
@@ -158,6 +172,7 @@ fn load_editor(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<CanDa
         (&app.math.unit_input, unit),
         (&app.math.equation_input, equation),
         (&app.math.rate_input, rate),
+        (&app.math.decimals_input, decimals.to_string()),
     ] {
         if let Some(input) = input {
             input.update(cx, |state, cx| state.set_value(value, window, cx));
@@ -195,11 +210,20 @@ fn save(app: &mut CanDataApp, cx: &mut Context<CanDataApp>) {
             return;
         }
     };
+    let decimals = match editor_decimals(app, cx) {
+        Ok(decimals) => decimals,
+        Err(e) => {
+            app.status_msg = format!("❌ {}", e).into();
+            cx.notify();
+            return;
+        }
+    };
     let signal = &mut app.math_store.signals[i];
     let old_name = std::mem::replace(&mut signal.name, name.clone());
     signal.unit = unit.trim().to_string();
     signal.equation = equation;
     signal.time_mode = time_mode;
+    signal.decimals = decimals;
     persist(app, format!("Math signal {} saved", name));
     if old_name != name {
         rename_everywhere(app, &old_name, &name);
@@ -464,6 +488,11 @@ fn ensure_inputs(app: &mut CanDataApp, window: &mut Window, cx: &mut Context<Can
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Unit"));
         redraw_on_change(&input, cx);
         app.math.unit_input = Some(input);
+    }
+    if app.math.decimals_input.is_none() {
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(DEFAULT_DECIMALS.to_string()));
+        redraw_on_change(&input, cx);
+        app.math.decimals_input = Some(input);
     }
     if app.math.equation_input.is_none() {
         let input = cx.new(|cx| {
@@ -842,9 +871,10 @@ fn render_editor(
             .child("Select a Math signal to edit it, or click New.")
             .into_any_element();
     };
-    let (Some(name_input), Some(unit_input), Some(equation_input)) = (
+    let (Some(name_input), Some(unit_input), Some(decimals_input), Some(equation_input)) = (
         app.math.name_input.clone(),
         app.math.unit_input.clone(),
+        app.math.decimals_input.clone(),
         app.math.equation_input.clone(),
     ) else {
         return div().into_any_element();
@@ -856,6 +886,7 @@ fn render_editor(
     let equation_check = check_named(Some(&signal.name), &equation, index);
     let (_, status_color) = status_mark(&equation_check);
     let time_mode = editor_time_mode(app, cx);
+    let decimals = editor_decimals(app, cx);
     let (resample, interpolation) = (app.math.resample, app.math.interpolation);
     let rate_input = app.math.rate_input.clone();
 
@@ -942,8 +973,20 @@ fn render_editor(
                             .gap_1()
                             .child(label("Unit"))
                             .child(Input::new(&unit_input).small()),
+                    )
+                    .child(
+                        div()
+                            .w(px(80.))
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(label("Decimals"))
+                            .child(Input::new(&decimals_input).small()),
                     ),
             )
+            .when_some(decimals.clone().err(), |el, e| {
+                el.child(div().text_xs().text_color(rgb(0xf87171)).child(e))
+            })
             .when_some(name_error.clone(), |el, e| {
                 el.child(div().text_xs().text_color(rgb(0xf87171)).child(e))
             })
@@ -970,7 +1013,7 @@ fn render_editor(
                             cx.notify();
                         });
                     }))
-                    .child(small_button("math-save", "Save", dirty && name_error.is_none() && !equation_check.is_error() && time_mode.is_ok(), move |_, cx| {
+                    .child(small_button("math-save", "Save", dirty && name_error.is_none() && !equation_check.is_error() && time_mode.is_ok() && decimals.is_ok(), move |_, cx| {
                         view_save.update(cx, |app, cx| save(app, cx));
                     })),
             ),
