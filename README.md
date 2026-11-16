@@ -61,9 +61,9 @@ CANdata runs on Windows 10 and 11 (x64). It is portable and makes no network con
 |:---:|:---:|
 | <img src="assets/screenshots/log-view.png" width="400" alt="CANdata log view" /> | <img src="assets/screenshots/plot-view.png" width="400" alt="CANdata plot view" /> |
 
-| Library view |
-|:---:|
-| <img src="assets/screenshots/library-view.png" width="600" alt="CANdata library view" /> |
+| Library view | Math view |
+|:---:|:---:|
+| <img src="assets/screenshots/library-view.png" width="400" alt="CANdata library view" /> | <img src="assets/screenshots/math-view.png" width="400" alt="CANdata Math view" /> |
 
 ---
 
