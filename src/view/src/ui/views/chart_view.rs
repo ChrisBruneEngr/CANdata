@@ -1750,9 +1750,12 @@ fn decode_signal_points(
                         if unit.is_none() && !sig.unit.is_empty() {
                             unit = Some(display_unit(&sig.unit).to_string());
                         }
-                        let val = sig.decode(data);
-                        points.push(DataPoint { time, value: val, index: 0 });
-                        collected += 1;
+                        // A multiplexed signal has no value in frames that carry
+                        // another multiplexor value, so those frames add no point.
+                        if let Some(val) = dbc_msg.decode(sig, data) {
+                            points.push(DataPoint { time, value: val, index: 0 });
+                            collected += 1;
+                        }
                     }
                 }
             }
@@ -2147,25 +2150,30 @@ impl FrameIndex {
         Arc::ptr_eq(&self.messages, messages)
     }
 
-    /// The data of each message's latest frame at or before `cursor` (Unix seconds).
-    fn latest_at(&self, cursor: f64) -> impl Iterator<Item = ((u16, u32), &[u8])> {
-        self.by_message.iter().filter_map(move |(key, positions)| {
-            let position = last_at_or_before(positions, cursor, |position| {
-                frame_fields(&self.messages[position as usize]).map_or(0, |f| f.2)
-            })?;
-            let (_, _, _, data) = frame_fields(&self.messages[position as usize])?;
-            Some((*key, data))
+    /// The data of each message's frames at or before `cursor` (Unix seconds), latest
+    /// first. A multiplexed signal may need to look back past the latest frame.
+    fn recent_at(
+        &self,
+        cursor: f64,
+    ) -> impl Iterator<Item = ((u16, u32), impl Iterator<Item = &[u8]> + '_)> + '_ {
+        let timestamp = |position: u32| frame_fields(&self.messages[position as usize]).map_or(0, |f| f.2);
+        self.by_message.iter().map(move |(key, positions)| {
+            let count = count_at_or_before(positions, cursor, timestamp);
+            let frames = positions[..count]
+                .iter()
+                .rev()
+                .filter_map(|&position| frame_fields(&self.messages[position as usize]).map(|f| f.3));
+            (*key, frames)
         })
     }
 }
 
-/// The last of `positions` (sorted by time) whose frame is at or before `cursor`,
-/// given each frame's timestamp in Unix nanoseconds. Frames at the same time count
-/// in order, so the later one wins.
-fn last_at_or_before(positions: &[u32], cursor: f64, timestamp: impl Fn(u32) -> u64) -> Option<u32> {
+/// How many of `positions` (sorted by time) are frames at or before `cursor`, given
+/// each frame's timestamp in Unix nanoseconds. Frames at the same time count in
+/// order, so the later one is last.
+fn count_at_or_before(positions: &[u32], cursor: f64, timestamp: impl Fn(u32) -> u64) -> usize {
     // object_time_stamp is absolute Unix nanoseconds, as in extract_series_data.
-    let count = positions.partition_point(|&p| timestamp(p) as f64 / 1_000_000_000.0 <= cursor);
-    count.checked_sub(1).map(|i| positions[i])
+    positions.partition_point(|&p| timestamp(p) as f64 / 1_000_000_000.0 <= cursor)
 }
 
 /// Decode every signal at the cursor, plotted or not, from the latest frame of each
@@ -2184,24 +2192,39 @@ fn update_cursor_values(app: &mut CanDataApp) {
     };
 
     let mut values = std::collections::HashMap::new();
-    for ((channel, id), data) in index.latest_at(cursor) {
+    for ((channel, id), frames) in index.recent_at(cursor) {
+        let mut frames = frames.peekable();
+        let latest = frames.peek().copied();
         if let Some(message) = app.dbc_channels.get(&channel).and_then(|db| db.messages.get(&id)) {
-            for sig in message.signals.values() {
-                values.insert(
-                    format!("CAN:{}:{}:{}", channel, id, sig.name),
-                    format_cursor_value(sig.decode(data), sig.decimal_places()),
-                );
+            // Each signal takes its value from the latest frame that carries it. That is
+            // the latest frame, except for multiplexed signals sent in other frames.
+            let mut pending: Vec<_> = message.signals.values().collect();
+            for data in frames.by_ref() {
+                pending.retain(|sig| match message.decode(sig, data) {
+                    Some(value) => {
+                        values.insert(
+                            format!("CAN:{}:{}:{}", channel, id, sig.name),
+                            format_cursor_value(value, sig.decimal_places()),
+                        );
+                        false
+                    }
+                    None => true,
+                });
+                if pending.is_empty() {
+                    break;
+                }
             }
         }
         if let Some(ldf) = app.ldf_channels.get(&channel) {
-            if let Some(frame) = ldf.frames.values().find(|f| f.id == id) {
-                for mapping in &frame.signals {
-                    if let Some(sig) = ldf.signals.get(&mapping.signal_name) {
-                        values.insert(
-                            format!("LIN:{}:{}:{}", channel, id, mapping.signal_name),
-                            format_cursor_value(sig.decode(data, mapping.offset) as f64, 0),
-                        );
-                    }
+            let (Some(frame), Some(data)) = (ldf.frames.values().find(|f| f.id == id), latest) else {
+                continue;
+            };
+            for mapping in &frame.signals {
+                if let Some(sig) = ldf.signals.get(&mapping.signal_name) {
+                    values.insert(
+                        format!("LIN:{}:{}:{}", channel, id, mapping.signal_name),
+                        format_cursor_value(sig.decode(data, mapping.offset) as f64, 0),
+                    );
                 }
             }
         }
@@ -2332,16 +2355,16 @@ mod tests {
     }
 
     #[test]
-    fn last_at_or_before_finds_latest_frame() {
+    fn count_at_or_before_counts_frames_up_to_cursor() {
         // Positions 10, 11, 12, 13 at 1 s, 2 s, 2 s, 3 s.
         let times = |p: u32| [1_000_000_000u64, 2_000_000_000, 2_000_000_000, 3_000_000_000][(p - 10) as usize];
         let positions = [10, 11, 12, 13];
-        assert_eq!(last_at_or_before(&positions, 0.5, times), None);
-        assert_eq!(last_at_or_before(&positions, 1.0, times), Some(10));
-        assert_eq!(last_at_or_before(&positions, 1.5, times), Some(10));
-        assert_eq!(last_at_or_before(&positions, 2.0, times), Some(12)); // later of two at 2 s
-        assert_eq!(last_at_or_before(&positions, 9.0, times), Some(13));
-        assert_eq!(last_at_or_before(&[], 9.0, times), None);
+        assert_eq!(count_at_or_before(&positions, 0.5, times), 0);
+        assert_eq!(count_at_or_before(&positions, 1.0, times), 1);
+        assert_eq!(count_at_or_before(&positions, 1.5, times), 1);
+        assert_eq!(count_at_or_before(&positions, 2.0, times), 3); // both frames at 2 s
+        assert_eq!(count_at_or_before(&positions, 9.0, times), 4);
+        assert_eq!(count_at_or_before(&[], 9.0, times), 0);
     }
 
 }
