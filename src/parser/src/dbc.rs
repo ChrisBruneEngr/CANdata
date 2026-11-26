@@ -14,6 +14,35 @@ pub struct Signal {
     pub unit: String,
     pub receivers: Vec<String>,
     pub comment: Option<String>,
+    pub multiplex: Multiplex,
+}
+
+/// A signal's role in a multiplexed message, from the marker after its name in the
+/// DBC: `M` for the multiplexor, `m3` for a signal sent only when the multiplexor is 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Multiplex {
+    /// In every frame of the message.
+    #[default]
+    None,
+    /// Says which of the multiplexed signals a frame carries.
+    Multiplexor,
+    /// Only in frames whose multiplexor has this raw value.
+    Multiplexed(u64),
+}
+
+impl Multiplex {
+    /// Read a DBC marker such as `M`, `m3`, or `m3M` (extended multiplexing, where
+    /// the signal is itself a multiplexor; only its own `m3` is kept).
+    fn parse(marker: &str) -> Self {
+        if marker == "M" {
+            return Self::Multiplexor;
+        }
+        marker
+            .strip_prefix('m')
+            .map(|rest| rest.trim_end_matches('M'))
+            .and_then(|value| value.parse().ok())
+            .map_or(Self::None, Self::Multiplexed)
+    }
 }
 
 impl Signal {
@@ -31,7 +60,8 @@ impl Signal {
         places(self.factor).max(places(self.offset)).min(MAX_PLACES)
     }
 
-    pub fn decode(&self, data: &[u8]) -> f64 {
+    /// The signal's bits as an unsigned number, before sign, factor, and offset.
+    pub fn raw_value(&self, data: &[u8]) -> u64 {
         let mut raw_value: u64 = 0;
 
         if self.byte_order == 1 {
@@ -68,6 +98,14 @@ impl Signal {
                 }
             }
         }
+        raw_value
+    }
+
+    /// The signal's physical value in `data`. For a multiplexed signal this reads the
+    /// bits even when the frame carries a different signal there; use
+    /// [`Message::decode`] to skip those frames.
+    pub fn decode(&self, data: &[u8]) -> f64 {
+        let raw_value = self.raw_value(data);
 
         // Handle signed
         let value = if self.value_type == '-' {
@@ -97,6 +135,27 @@ pub struct Message {
 
     pub signals: HashMap<String, Signal>,
     pub comment: Option<String>,
+}
+
+impl Message {
+    /// `signal`'s value in this frame, or `None` when it is multiplexed and the frame
+    /// carries another set of signals.
+    pub fn decode(&self, signal: &Signal, data: &[u8]) -> Option<f64> {
+        self.is_in_frame(signal, data).then(|| signal.decode(data))
+    }
+
+    /// Whether this frame carries `signal`: always, unless it is multiplexed and the
+    /// frame's multiplexor has another value.
+    pub fn is_in_frame(&self, signal: &Signal, data: &[u8]) -> bool {
+        let Multiplex::Multiplexed(value) = signal.multiplex else {
+            return true;
+        };
+        // A DBC that marks signals `m0` but has no `M` gives nothing to compare with.
+        self.signals
+            .values()
+            .find(|s| s.multiplex == Multiplex::Multiplexor)
+            .is_none_or(|multiplexor| multiplexor.raw_value(data) == value)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +227,11 @@ impl DbcParser {
                     } // Basic check
 
                     let name = parts[1].to_string();
+                    // `SG_ Name M : ...` or `SG_ Name m2 : ...` in a multiplexed message.
+                    let multiplex = match parts[2] {
+                        ":" => Multiplex::None,
+                        marker => Multiplex::parse(marker),
+                    };
 
                     // Remainder string for complex parsing
                     if let Some(rest_idx) = line.find(':') {
@@ -249,6 +313,7 @@ impl DbcParser {
                                         unit,
                                         receivers,
                                         comment: None,
+                                        multiplex,
                                     };
 
                                     if let Some(msg) = database.messages.get_mut(&msg_id) {
@@ -327,6 +392,7 @@ mod tests {
                 unit: String::new(),
                 receivers: Vec::new(),
                 comment: None,
+                multiplex: super::Multiplex::None,
             }
             .decimal_places()
         };
@@ -343,6 +409,39 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn multiplexed_signals_only_decode_in_their_frames() {
+        let dbc = r#"
+BO_ 175 Diag: 8 INV
+ SG_ Record : 0|8@1+ (1,0) [0|160] "" Vector__XXX
+ SG_ Segment M : 8|8@1+ (1,0) [0|5] "" Vector__XXX
+ SG_ Sin_Used m0 : 48|16@1- (1,0) [-5|5] "voltage:V" Vector__XXX
+ SG_ Ia m1 : 32|16@1- (0.1,0) [-2000|2000] "current:A" Vector__XXX
+ SG_ Nested m2M : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+"#;
+        let db = DbcParser::new().parse(dbc).unwrap();
+        let msg = &db.messages[&175];
+        let sig = |name: &str| &msg.signals[name];
+        assert_eq!(sig("Record").multiplex, Multiplex::None);
+        assert_eq!(sig("Segment").multiplex, Multiplex::Multiplexor);
+        assert_eq!(sig("Sin_Used").multiplex, Multiplex::Multiplexed(0));
+        assert_eq!(sig("Ia").multiplex, Multiplex::Multiplexed(1));
+        assert_eq!(sig("Nested").multiplex, Multiplex::Multiplexed(2));
+        assert_eq!(sig("Sin_Used").start_bit, 48);
+
+        // Frames from the DC-DC log, segments 0, 1, 2.
+        let seg0 = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x00];
+        let seg1 = [0x00, 0x01, 0x00, 0x00, 0x3D, 0xF6, 0x00, 0x00];
+        let seg2 = [0x00, 0x02, 0xDA, 0x01, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(msg.decode(sig("Sin_Used"), &seg0), Some(24.0));
+        assert_eq!(msg.decode(sig("Sin_Used"), &seg1), None);
+        assert_eq!(msg.decode(sig("Sin_Used"), &seg2), None);
+        assert_eq!(msg.decode(sig("Ia"), &seg0), None);
+        assert!(msg.decode(sig("Ia"), &seg1).is_some());
+        assert_eq!(msg.decode(sig("Record"), &seg2), Some(0.0));
+        assert_eq!(msg.decode(sig("Segment"), &seg2), Some(2.0));
+    }
 
     #[test]
     fn test_parse_simple_dbc() {

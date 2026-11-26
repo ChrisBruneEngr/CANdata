@@ -1202,6 +1202,7 @@ mod tests {
             unit: unit.into(),
             receivers: vec![],
             comment: None,
+            multiplex: Default::default(),
         }
     }
 
